@@ -1,0 +1,69 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "simulation/1.0.0": {
+        "dependencies": {
+          "Godot.SourceGenerators": "4.6.3",
+          "GodotSharp": "4.6.3",
+          "GodotSharpEditor": "4.6.3"
+        },
+        "runtime": {
+          "simulation.dll": {}
+        }
+      },
+      "Godot.SourceGenerators/4.6.3": {},
+      "GodotSharp/4.6.3": {
+        "runtime": {
+          "lib/net8.0/GodotSharp.dll": {
+            "assemblyVersion": "4.6.3.0",
+            "fileVersion": "4.6.3.0"
+          }
+        }
+      },
+      "GodotSharpEditor/4.6.3": {
+        "dependencies": {
+          "GodotSharp": "4.6.3"
+        },
+        "runtime": {
+          "lib/net8.0/GodotSharpEditor.dll": {
+            "assemblyVersion": "4.6.3.0",
+            "fileVersion": "4.6.3.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "simulation/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Godot.SourceGenerators/4.6.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-tDEpdpIxCAGEFPCqBQmRIICHmU6RyNIdgBmAK8V1ZjJqvPNMsVAp+7aJXCSyrfXVCEywsd4GMkpgXIYc8JtNUw==",
+      "path": "godot.sourcegenerators/4.6.3",
+      "hashPath": "godot.sourcegenerators.4.6.3.nupkg.sha512"
+    },
+    "GodotSharp/4.6.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-2gLsonAxGdDGm9/yYDy4A1U+db8JFGvlzt6ZuzX14cqrkCa7noikZDHcqtujcVAjXLOyxm+TuMdsmihYLZq1RA==",
+      "path": "godotsharp/4.6.3",
+      "hashPath": "godotsharp.4.6.3.nupkg.sha512"
+    },
+    "GodotSharpEditor/4.6.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-ytyJqJVpB5/7ZXKO9ahKzK24wlengf1FdNFHoIopa72irgon/HpizIcuzh/9lfGytfZywKi97o/LIQF9j7eHNA==",
+      "path": "godotsharpeditor/4.6.3",
+      "hashPath": "godotsharpeditor.4.6.3.nupkg.sha512"
+    }
+  }
+}

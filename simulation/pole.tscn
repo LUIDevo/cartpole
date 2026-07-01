@@ -1,0 +1,23 @@
+[gd_scene format=3 uid="uid://114ock4gvtqt"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_7048l"]
+
+[sub_resource type="CanvasTexture" id="CanvasTexture_7048l"]
+specular_color = Color(0.05882353, 1, 1, 1)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_7048l"]
+size = Vector2(20, 200)
+
+[node name="RigidBody2D" type="RigidBody2D" unique_id=1263501474]
+mass = 1000.0
+physics_material_override = SubResource("PhysicsMaterial_7048l")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=492326734]
+position = Vector2(-10, -200)
+scale = Vector2(20, 200)
+texture = SubResource("CanvasTexture_7048l")
+centered = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=328499955]
+position = Vector2(0, -99.999985)
+shape = SubResource("RectangleShape2D_7048l")

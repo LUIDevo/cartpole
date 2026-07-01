@@ -1,0 +1,170 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "Godot.SourceGenerators/4.6.3": {
+        "type": "package",
+        "build": {
+          "build/Godot.SourceGenerators.props": {}
+        }
+      },
+      "GodotSharp/4.6.3": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/GodotSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/GodotSharp.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "GodotSharpEditor/4.6.3": {
+        "type": "package",
+        "dependencies": {
+          "GodotSharp": "4.6.3"
+        },
+        "compile": {
+          "lib/net8.0/GodotSharpEditor.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/GodotSharpEditor.dll": {
+            "related": ".xml"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Godot.SourceGenerators/4.6.3": {
+      "sha512": "tDEpdpIxCAGEFPCqBQmRIICHmU6RyNIdgBmAK8V1ZjJqvPNMsVAp+7aJXCSyrfXVCEywsd4GMkpgXIYc8JtNUw==",
+      "type": "package",
+      "path": "godot.sourcegenerators/4.6.3",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/cs/Godot.SourceGenerators.dll",
+        "build/Godot.SourceGenerators.props",
+        "godot.sourcegenerators.4.6.3.nupkg.sha512",
+        "godot.sourcegenerators.nuspec"
+      ]
+    },
+    "GodotSharp/4.6.3": {
+      "sha512": "2gLsonAxGdDGm9/yYDy4A1U+db8JFGvlzt6ZuzX14cqrkCa7noikZDHcqtujcVAjXLOyxm+TuMdsmihYLZq1RA==",
+      "type": "package",
+      "path": "godotsharp/4.6.3",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "godotsharp.4.6.3.nupkg.sha512",
+        "godotsharp.nuspec",
+        "lib/net8.0/GodotSharp.dll",
+        "lib/net8.0/GodotSharp.xml"
+      ]
+    },
+    "GodotSharpEditor/4.6.3": {
+      "sha512": "ytyJqJVpB5/7ZXKO9ahKzK24wlengf1FdNFHoIopa72irgon/HpizIcuzh/9lfGytfZywKi97o/LIQF9j7eHNA==",
+      "type": "package",
+      "path": "godotsharpeditor/4.6.3",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "godotsharpeditor.4.6.3.nupkg.sha512",
+        "godotsharpeditor.nuspec",
+        "lib/net8.0/GodotSharpEditor.dll",
+        "lib/net8.0/GodotSharpEditor.xml"
+      ]
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "Godot.SourceGenerators >= 4.6.3",
+      "GodotSharp >= 4.6.3",
+      "GodotSharpEditor >= 4.6.3"
+    ]
+  },
+  "packageFolders": {
+    "/home/crlos/.nuget/packages/": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "/home/crlos/dev/cart-pole/simulation/simulation.csproj",
+      "projectName": "simulation",
+      "projectPath": "/home/crlos/dev/cart-pole/simulation/simulation.csproj",
+      "packagesPath": "/home/crlos/.nuget/packages/",
+      "outputPath": "/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "/home/crlos/.nuget/NuGet/NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "projectReferences": {}
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      }
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "dependencies": {
+          "Godot.SourceGenerators": {
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[4.6.3, )",
+            "autoReferenced": true
+          },
+          "GodotSharp": {
+            "target": "Package",
+            "version": "[4.6.3, )",
+            "autoReferenced": true
+          },
+          "GodotSharpEditor": {
+            "target": "Package",
+            "version": "[4.6.3, )",
+            "autoReferenced": true
+          }
+        },
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[8.0.27, 8.0.27]"
+          }
+        ],
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/8.0.127/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

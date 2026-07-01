@@ -1,0 +1,17 @@
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/simulation.deps.json
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/simulation.runtimeconfig.json
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/simulation.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/simulation.pdb
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/GodotSharp.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/bin/Debug/GodotSharpEditor.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.csproj.AssemblyReference.cache
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.GeneratedMSBuildEditorConfig.editorconfig
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.AssemblyInfoInputs.cache
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.AssemblyInfo.cs
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.csproj.CoreCompileInputs.cache
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.csproj.CopyComplete
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/refint/simulation.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.pdb
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.genruntimeconfig.cache
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/ref/simulation.dll

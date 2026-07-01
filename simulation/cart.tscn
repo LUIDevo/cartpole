@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://deymcbcvb6122"]
+
+[ext_resource type="Script" uid="uid://x7mwwywpyywy" path="res://Cart.cs" id="1_aph70"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_pjrxg"]
+size = Vector2(30, 14)
+
+[sub_resource type="CanvasTexture" id="CanvasTexture_aph70"]
+
+[node name="CharacterBody2D" type="CharacterBody2D" unique_id=607720485]
+scale = Vector2(10, 10)
+script = ExtResource("1_aph70")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1214596641]
+position = Vector2(1, 7.0000005)
+shape = SubResource("RectangleShape2D_pjrxg")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=634625110]
+position = Vector2(1, 7.0000005)
+scale = Vector2(30, 14.000001)
+texture = SubResource("CanvasTexture_aph70")

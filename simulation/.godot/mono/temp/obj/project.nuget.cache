@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "4lbNO2FoFBUVryuu43YaLXwDWSRcV/j6NKDsffx1e4Y/u1lyNBlNptSRggx9kWgpoJ2lCQBDNFFEIlswW0FzwA==",
+  "success": true,
+  "projectFilePath": "/home/crlos/dev/cart-pole/simulation/simulation.csproj",
+  "expectedPackageFiles": [
+    "/home/crlos/.nuget/packages/godot.sourcegenerators/4.6.3/godot.sourcegenerators.4.6.3.nupkg.sha512",
+    "/home/crlos/.nuget/packages/godotsharp/4.6.3/godotsharp.4.6.3.nupkg.sha512",
+    "/home/crlos/.nuget/packages/godotsharpeditor/4.6.3/godotsharpeditor.4.6.3.nupkg.sha512",
+    "/home/crlos/.nuget/packages/microsoft.aspnetcore.app.ref/8.0.27/microsoft.aspnetcore.app.ref.8.0.27.nupkg.sha512"
+  ],
+  "logs": []
+}
