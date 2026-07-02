@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cwokg7aewtgr5"
+
+[deps]
+
+files=["res://data/dataset.pole.translation", "res://data/dataset.pole.translation", "res://data/dataset.motor.translation"]
+
+source_file="res://data/dataset.csv"
+dest_files=["res://data/dataset.pole.translation", "res://data/dataset.pole.translation", "res://data/dataset.motor.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

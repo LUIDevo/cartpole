@@ -53,10 +53,36 @@ public partial class Cart : CharacterBody2D
 		return Mathf.Sign(u) * mag * MaxMotorForce;
 	}
 
+	// When true the cart is driven externally (SimController feeds commands from the
+	// control stream); the random self-driving policy below is disabled.
+	public bool ExternalControl = false;
+
+	// Current observation: (cart velocity, pole angular velocity, pole angle).
+	public (float cartVel, float poleAngVel, float poleAngle) Observe()
+	{
+		var pole = GetNodeOrNull<RigidBody2D>("../Node2D");
+		return (Velocity.X, pole?.AngularVelocity ?? 0f, pole?.Rotation ?? 0f);
+	}
+
+	// Apply one motor command (raw u in [-1,1]) for one physics step.
+	public void ApplyCommand(float command, double delta)
+	{
+		float totalMass = CartMass + PoleMass;
+		float accel     = MotorForce(command) / totalMass;
+		float maxSpeed  = Mathf.Min(MaxMotorPower / (totalMass * 0.5f), 500f);
+
+		Vector2 v = Velocity;
+		v.X = Mathf.Clamp(v.X + accel * (float)delta, -maxSpeed, maxSpeed);
+		Velocity = v;
+		MoveAndSlide();
+	}
+
 	public override void _PhysicsProcess(double delta)
 	{
-		// 1. Random policy: pick a new command occasionally, hold it a few ticks
-		//    (like discrete inputs a driver/agent would send, not per-frame noise).
+		if (ExternalControl) return; // driven by SimController.ApplyCommand()
+
+		// Random policy: pick a new command occasionally, hold it a few ticks
+		// (like discrete inputs a driver/agent would send, not per-frame noise).
 		if (_holdTicks <= 0)
 		{
 			_command   = Rand(-1f, 1f);
@@ -64,23 +90,8 @@ public partial class Cart : CharacterBody2D
 		}
 		_holdTicks--;
 
-		// 2. Read current state (features).
-		var pole = GetNodeOrNull<RigidBody2D>("../Node2D");
-		float poleAngle  = pole?.Rotation ?? 0f;
-		float poleAngVel = pole?.AngularVelocity ?? 0f;
-		float cartVel    = Velocity.X;
-
-		// 3. Log features + the exact command applied to this state.
-		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command);
-
-		// 4. Apply the randomized motor response.
-		float totalMass = CartMass + PoleMass;
-		float accel     = MotorForce(_command) / totalMass;
-		float maxSpeed  = Mathf.Min(MaxMotorPower / (totalMass * 0.5f), 500f);
-
-		Vector2 v = Velocity;
-		v.X = Mathf.Clamp(v.X + accel * (float)delta, -maxSpeed, maxSpeed);
-		Velocity = v;
-		MoveAndSlide();
+		var (cartVel, poleAngVel, poleAngle) = Observe();
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command); // features + label
+		ApplyCommand(_command, delta);
 	}
 }
