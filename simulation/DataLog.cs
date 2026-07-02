@@ -16,38 +16,46 @@ public static class DataLog
 
 	private static int _ticksPerEpisode = 500;
 	private static int _targetEpisodes  = 100;
+	private static int _shard = 0;
 
-	private static int _tickInEpisode = 0;
+	private static int _tickInEpisode = 0; // step index within the current episode
 	private static int _episodesDone   = 0;
 	public static long TotalRows { get; private set; } = 0;
 
 	public static bool EpisodeDone => _tickInEpisode >= _ticksPerEpisode;
 	public static bool AllDone     => _episodesDone   >= _targetEpisodes;
 
+	// Globally-unique batch id: one episode = one fully-randomized system. Shard is
+	// folded in so ids never collide when shard CSVs are merged.
+	private static long EpisodeId => (long)_shard * 1_000_000L + _episodesDone;
+
 	// Called once per process (guarded); re-invocations after scene reloads no-op.
-	public static void Init(string outPath, int ticksPerEpisode, int targetEpisodes, int? seed)
+	public static void Init(string outPath, int ticksPerEpisode, int targetEpisodes, int? seed, int shard)
 	{
 		if (_initialized) return;
 		_initialized = true;
 
 		_ticksPerEpisode = Math.Max(1, ticksPerEpisode);
 		_targetEpisodes  = Math.Max(1, targetEpisodes);
+		_shard = shard;
 		Rng = seed.HasValue ? new Random(seed.Value) : new Random();
 
 		string dir = Path.GetDirectoryName(outPath);
 		if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
 		_writer = new StreamWriter(outPath, append: false);
-		_writer.WriteLine("cart_velocity,pole_angular_velocity,pole_angle,motor_command");
+		_writer.WriteLine("episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,motor_command");
 		_writer.Flush();
 	}
 
-	// One dataset row: the 3 state features + the exact command applied to that state.
+	// One dataset row: episode batch id + step, then the 3 state features + the
+	// exact command applied to that state.
 	public static void WriteRow(float cartVelocity, float poleAngularVelocity, float poleAngle, float motorCommand)
 	{
 		if (_writer == null) return;
 		_writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
-			"{0:R},{1:R},{2:R},{3:R}", cartVelocity, poleAngularVelocity, poleAngle, motorCommand));
+			"{0},{1},{2:R},{3:R},{4:R},{5:R}",
+			EpisodeId, _tickInEpisode, cartVelocity, poleAngularVelocity, poleAngle, motorCommand));
 		_tickInEpisode++;
 		TotalRows++;
 	}

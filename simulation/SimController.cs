@@ -32,7 +32,7 @@ public partial class SimController : Node2D
 	public override void _Ready()
 	{
 		string outPath = "data/dataset.csv";
-		int ticks = 500, episodes = 100, port = 0;
+		int ticks = 500, episodes = 100, port = 0, shard = 0;
 		int? seed = null;
 
 		foreach (string arg in OS.GetCmdlineUserArgs())
@@ -43,6 +43,7 @@ public partial class SimController : Node2D
 			else if (arg.StartsWith("--seed="))      { if (int.TryParse(arg.Substring("--seed=".Length),     out int s)) seed     = s; }
 			else if (arg.StartsWith("--port="))      { if (int.TryParse(arg.Substring("--port=".Length),     out int p)) port     = p; }
 			else if (arg.StartsWith("--grace="))     { if (double.TryParse(arg.Substring("--grace=".Length), NumberStyles.Float, CultureInfo.InvariantCulture, out double g)) _graceSeconds = g; }
+			else if (arg.StartsWith("--shard="))     { if (int.TryParse(arg.Substring("--shard=".Length),    out int sh)) shard    = sh; }
 		}
 
 		bool headless = DisplayServer.GetName() == "headless";
@@ -59,7 +60,7 @@ public partial class SimController : Node2D
 		else if (headless)
 		{
 			_mode = Mode.DataGen;
-			DataLog.Init(outPath, ticks, episodes, seed);
+			DataLog.Init(outPath, ticks, episodes, seed, shard);
 			GD.Print($"Mode: DataGen -> {outPath}");
 		}
 		else

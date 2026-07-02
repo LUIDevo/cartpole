@@ -26,7 +26,7 @@ echo "Launching $SHARDS shards x $EPISODES episodes x $TICKS ticks (out: $OUTDIR
 pids=()
 for ((k=0; k<SHARDS; k++)); do
   "$GODOT" --headless --path "$PROJECT" -- \
-    --out="$OUTDIR/shard_$k.csv" --episodes="$EPISODES" --ticks="$TICKS" --seed="$k" &
+    --out="$OUTDIR/shard_$k.csv" --episodes="$EPISODES" --ticks="$TICKS" --seed="$k" --shard="$k" &
   pids+=($!)
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
