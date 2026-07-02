@@ -1,4 +1,6 @@
-[gd_scene format=3 uid="uid://114ock4gvtqt"]
+[gd_scene load_steps=5 format=3 uid="uid://114ock4gvtqt"]
+
+[ext_resource type="Script" path="res://Pole.cs" id="1_pole"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_7048l"]
 
@@ -11,6 +13,7 @@ size = Vector2(20, 200)
 [node name="RigidBody2D" type="RigidBody2D" unique_id=1263501474]
 mass = 1000.0
 physics_material_override = SubResource("PhysicsMaterial_7048l")
+script = ExtResource("1_pole")
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=492326734]
 position = Vector2(-10, -200)

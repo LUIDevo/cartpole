@@ -3,51 +3,84 @@ using System;
 
 public partial class Cart : CharacterBody2D
 {
-	// Base properties of the cart itself
+	// Base properties of the cart itself (randomized per episode)
 	[Export] public float CartMass = 5.0f;       // Mass of the cart (kg)
-	[Export] public float PoleMass = 2.0f;       // Mass of the pole (kg) — change this to test!
-	
-	// Motor limits
-	[Export] public float MaxMotorForce = 7000f; // Total force the motor can exert (Newtons)
-	[Export] public float MaxMotorPower = 2100f; // Total power limit of the motor (Watts)
+	[Export] public float PoleMass = 2.0f;       // Pole mass used by the motor math (kg)
+
+	// Motor limits (randomized per episode)
+	[Export] public float MaxMotorForce = 7000f; // Peak force the motor can exert (N)
+	[Export] public float MaxMotorPower = 2100f; // Power limit -> caps max speed (W)
+
+	// --- "Unknown motor" response randomization ---
+	// The dataset LABEL is the raw command u in [-1, 1]. How that command maps to
+	// physical force is randomized each episode so the data spans many real motors.
+	private float _motorDeadzone; // |u| below this does nothing
+	private float _motorExponent; // response curve: force ∝ sign(u)*|u|^exp
+	private float _motorBias;     // small directional asymmetry
+
+	// Current random command and how many ticks left to hold it
+	private float _command   = 0f;
+	private int   _holdTicks = 0;
+
+	// Uniform random float in [min, max], from the shared seeded RNG.
+	private float Rand(float min, float max) => min + (float)DataLog.Rng.NextDouble() * (max - min);
+
+	public override void _Ready()
+	{
+		// Cart weight, max accel (force) and max speed (power)
+		CartMass      = Rand(2.0f, 12.0f);
+		PoleMass      = Rand(0.5f, 6.0f);
+		MaxMotorForce = Rand(3000f, 12000f);
+		MaxMotorPower = Rand(1000f, 3500f);
+
+		// Randomized motor transfer function
+		_motorDeadzone = Rand(0.0f, 0.15f);
+		_motorExponent = Rand(0.7f, 1.6f);
+		_motorBias     = Rand(-0.1f, 0.1f);
+
+		// Small random starting drift
+		Velocity = new Vector2(Rand(-120f, 120f), 0f);
+	}
+
+	// Map raw command u in [-1,1] to a physical force via the randomized motor model.
+	private float MotorForce(float u)
+	{
+		u = Mathf.Clamp(u + _motorBias, -1f, 1f);
+		float mag = Mathf.Abs(u);
+		if (mag < _motorDeadzone) return 0f;
+		mag = (mag - _motorDeadzone) / (1f - _motorDeadzone); // rescale past deadzone
+		mag = Mathf.Pow(mag, _motorExponent);                 // nonlinear response
+		return Mathf.Sign(u) * mag * MaxMotorForce;
+	}
 
 	public override void _PhysicsProcess(double delta)
 	{
-		Vector2 currentVelocity = Velocity;
-		Vector2 direction = Input.GetVector("ui_left", "ui_right", "ui_up", "ui_down");
+		// 1. Random policy: pick a new command occasionally, hold it a few ticks
+		//    (like discrete inputs a driver/agent would send, not per-frame noise).
+		if (_holdTicks <= 0)
+		{
+			_command   = Rand(-1f, 1f);
+			_holdTicks = (int)Rand(1f, 15f);
+		}
+		_holdTicks--;
 
-		// 1. Calculate total mass
+		// 2. Read current state (features).
+		var pole = GetNodeOrNull<RigidBody2D>("../Node2D");
+		float poleAngle  = pole?.Rotation ?? 0f;
+		float poleAngVel = pole?.AngularVelocity ?? 0f;
+		float cartVel    = Velocity.X;
+
+		// 3. Log features + the exact command applied to this state.
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command);
+
+		// 4. Apply the randomized motor response.
 		float totalMass = CartMass + PoleMass;
+		float accel     = MotorForce(_command) / totalMass;
+		float maxSpeed  = Mathf.Min(MaxMotorPower / (totalMass * 0.5f), 500f);
 
-		// 2. Dynamically calculate Acceleration using F = ma -> a = F/m
-		float dynamicAcceleration = MaxMotorForce / totalMass;
-
-		// 3. Dynamically calculate Max Speed based on power limits (Power = Force * Velocity)
-		// If the mass is heavy, the motor can't push it as fast.
-		float dynamicMaxSpeed = MaxMotorPower / (totalMass * 0.5f); 
-		
-		// Hard-cap the max speed so it doesn't become infinite if mass is 0
-		dynamicMaxSpeed = Mathf.Min(dynamicMaxSpeed, 500f); 
-
-		// 4. Apply the movement logic using our dynamic values
-		if (direction.X != 0) 
-		{
-			currentVelocity.X = Mathf.MoveToward(
-				currentVelocity.X,
-				direction.X * dynamicMaxSpeed,
-				dynamicAcceleration * (float)delta
-			);
-		}
-		else 
-		{
-			currentVelocity.X = Mathf.MoveToward(
-				currentVelocity.X,
-				0,
-				dynamicAcceleration * (float)delta
-			);
-		}
-
-		Velocity = currentVelocity;
+		Vector2 v = Velocity;
+		v.X = Mathf.Clamp(v.X + accel * (float)delta, -maxSpeed, maxSpeed);
+		Velocity = v;
 		MoveAndSlide();
 	}
 }

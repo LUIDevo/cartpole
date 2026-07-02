@@ -15,3 +15,4 @@
 /home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.pdb
 /home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.genruntimeconfig.cache
 /home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/ref/simulation.dll
+/home/crlos/dev/cart-pole/simulation/.godot/mono/temp/obj/Debug/simulation.sourcelink.json
