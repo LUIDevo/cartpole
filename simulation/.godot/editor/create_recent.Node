@@ -1,7 +1,0 @@
-PinJoint2D
-Sprite2D
-CollisionShape2D
-CharacterBody2D
-StaticBody2D
-Node2D
-RigidBody2D

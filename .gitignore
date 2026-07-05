@@ -1,1 +1,29 @@
-simulation/data/
+# === Simulation + data pipeline (Godot 4 Mono) ===
+# Godot generated cache/import data
+simulation/.godot/
+simulation/android/
+simulation/export_presets.cfg
+
+# .NET / C# build output (Godot Mono)
+simulation/.mono/
+[Bb]in/
+[Oo]bj/
+*.user
+*.userprefs
+
+# === Neural network / Python ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ML artifacts
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# === OS ===
+.DS_Store

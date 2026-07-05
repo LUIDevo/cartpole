@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://crylso1awunn1"
+
+[deps]
+
+files=["res://data/shard_21.step.translation", "res://data/shard_21.cart.translation", "res://data/shard_21.pole.translation", "res://data/shard_21.pole.translation", "res://data/shard_21.motor.translation"]
+
+source_file="res://data/shard_21.csv"
+dest_files=["res://data/shard_21.step.translation", "res://data/shard_21.cart.translation", "res://data/shard_21.pole.translation", "res://data/shard_21.pole.translation", "res://data/shard_21.motor.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
