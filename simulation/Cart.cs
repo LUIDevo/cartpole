@@ -136,6 +136,24 @@ public partial class Cart : CharacterBody2D
 		v.X = Mathf.Clamp(v.X + accel * (float)delta, -maxSpeed, maxSpeed);
 		Velocity = v;
 		MoveAndSlide();
+
+		ClampToTrack();
+	}
+
+	// The cart runs on a bounded track and cannot pass (or touch beyond) the ends.
+	// Position is clamped to ±HalfTrackLength and velocity into the wall is killed so
+	// the cart stops dead at the boundary — exactly where CartAtEnd()/done trigger.
+	private void ClampToTrack()
+	{
+		float min = _trackCenterX - HalfTrackLength;
+		float max = _trackCenterX + HalfTrackLength;
+		if (Position.X <= min || Position.X >= max)
+		{
+			Position = new Vector2(Mathf.Clamp(Position.X, min, max), Position.Y);
+			Vector2 v = Velocity;
+			if ((Position.X <= min && v.X < 0f) || (Position.X >= max && v.X > 0f)) v.X = 0f;
+			Velocity = v;
+		}
 	}
 
 	public override void _PhysicsProcess(double delta)
