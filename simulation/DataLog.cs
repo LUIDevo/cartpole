@@ -25,6 +25,11 @@ public static class DataLog
 	public static bool EpisodeDone => _tickInEpisode >= _ticksPerEpisode;
 	public static bool AllDone     => _episodesDone   >= _targetEpisodes;
 
+	// True on the final row of the episode's tick budget (the step-limit condition
+	// for the `done` flag). WriteRow increments after logging, so the last logged
+	// row is at index _ticksPerEpisode - 1.
+	public static bool IsLastStep => _tickInEpisode >= _ticksPerEpisode - 1;
+
 	// Globally-unique batch id: one episode = one fully-randomized system. Shard is
 	// folded in so ids never collide when shard CSVs are merged.
 	private static long EpisodeId => (long)_shard * 1_000_000L + _episodesDone;
@@ -44,18 +49,18 @@ public static class DataLog
 		if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
 		_writer = new StreamWriter(outPath, append: false);
-		_writer.WriteLine("episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,cart_position,motor_command,reward");
+		_writer.WriteLine("episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,cart_position,motor_command,reward,done");
 		_writer.Flush();
 	}
 
 	// One dataset row: episode batch id + step, then the 4 state features, the
-	// exact command applied to that state, and the per-step reward signal.
-	public static void WriteRow(float cartVelocity, float poleAngularVelocity, float poleAngle, float cartPosition, float motorCommand, float reward)
+	// exact command applied to that state, the per-step reward, and the terminal flag.
+	public static void WriteRow(float cartVelocity, float poleAngularVelocity, float poleAngle, float cartPosition, float motorCommand, float reward, bool done)
 	{
 		if (_writer == null) return;
 		_writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
-			"{0},{1},{2:R},{3:R},{4:R},{5:R},{6:R},{7:R}",
-			EpisodeId, _tickInEpisode, cartVelocity, poleAngularVelocity, poleAngle, cartPosition, motorCommand, reward));
+			"{0},{1},{2:R},{3:R},{4:R},{5:R},{6:R},{7:R},{8}",
+			EpisodeId, _tickInEpisode, cartVelocity, poleAngularVelocity, poleAngle, cartPosition, motorCommand, reward, done ? 1 : 0));
 		_tickInEpisode++;
 		TotalRows++;
 	}

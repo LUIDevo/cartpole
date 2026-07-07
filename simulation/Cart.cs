@@ -59,6 +59,20 @@ public partial class Cart : CharacterBody2D
 	// NOTE: magnitude only (drops left/right sign), per the requested formula.
 	public float NormalizedCartPos() => Mathf.Abs(CartOffset()) / HalfTrackLength;
 
+	// Pole is considered failed once it tilts past horizontal (|angle| > 90°).
+	public static readonly float FailAngle = Mathf.Pi / 2f;
+
+	// Cart has reached (or passed) a track end.
+	public bool CartAtEnd() => Mathf.Abs(CartOffset()) >= HalfTrackLength;
+
+	// Terminal state for the `done` flag: pole failed, or cart hit a track end.
+	// (Step-limit is episode bookkeeping, folded in at the logging call, not here.)
+	public bool IsTerminal()
+	{
+		var (_, _, angle) = Observe();
+		return Mathf.Abs(angle) > FailAngle || CartAtEnd();
+	}
+
 	// Per-step reward (state cost, always <= 0). Penalizes tilt, spin, and drift
 	// from track center:  -(angle² + 0.1·angVel² + 0.5·(pos/half_track)²).
 	// angle/angVel are raw (rad, rad/s); position is signed-normalized to [-1,1].
@@ -138,7 +152,8 @@ public partial class Cart : CharacterBody2D
 		_holdTicks--;
 
 		var (cartVel, poleAngVel, poleAngle) = ObserveNormalized();
-		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command, Reward()); // features + label + reward
+		bool done = IsTerminal() || DataLog.IsLastStep; // pole/cart-end, or step limit
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command, Reward(), done);
 		ApplyCommand(_command, delta);
 	}
 }

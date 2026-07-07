@@ -127,7 +127,7 @@ public partial class SimController : Node2D
 	{
 		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized(); // model-facing scale
 		float cartPos = _cart.NormalizedCartPos();
-		bool done = Mathf.Abs(_cart.Observe().poleAngle) > BelowHorizon;   // threshold on raw angle
+		bool done = _cart.IsTerminal();   // pole past fail angle, or cart at a track end
 		ControlLink.WriteLine(string.Format(CultureInfo.InvariantCulture,
 			"{0:R},{1:R},{2:R},{3:R},{4}", cartVel, poleAngVel, poleAngle, cartPos, done ? 1 : 0));
 	}
@@ -150,8 +150,9 @@ public partial class SimController : Node2D
 		if (_resetPending) return;
 
 		// Episode ends when the pole has fallen below horizontal past the grace
-		// period, or the per-episode tick cap is hit (safety bound).
-		if (!FallenPastGrace(GetPhysicsProcessDeltaTime()) && !DataLog.EpisodeDone) return;
+		// period, the cart hits a track end (hard boundary, no grace), or the
+		// per-episode tick cap is hit (safety bound).
+		if (!FallenPastGrace(GetPhysicsProcessDeltaTime()) && !_cart.CartAtEnd() && !DataLog.EpisodeDone) return;
 
 		DataLog.EndEpisode();
 
@@ -171,7 +172,7 @@ public partial class SimController : Node2D
 	{
 		if (_resetPending) return;
 		_watchTicks++;
-		if (FallenPastGrace(GetPhysicsProcessDeltaTime()) || _watchTicks > WatchMaxTicks)
+		if (FallenPastGrace(GetPhysicsProcessDeltaTime()) || _cart.CartAtEnd() || _watchTicks > WatchMaxTicks)
 		{
 			_resetPending = true;
 			GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
