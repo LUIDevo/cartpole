@@ -59,6 +59,16 @@ public partial class Cart : CharacterBody2D
 	// NOTE: magnitude only (drops left/right sign), per the requested formula.
 	public float NormalizedCartPos() => Mathf.Abs(CartOffset()) / HalfTrackLength;
 
+	// Per-step reward (state cost, always <= 0). Penalizes tilt, spin, and drift
+	// from track center:  -(angle² + 0.1·angVel² + 0.5·(pos/half_track)²).
+	// angle/angVel are raw (rad, rad/s); position is signed-normalized to [-1,1].
+	public float Reward()
+	{
+		var (_, angVel, angle) = Observe();
+		float posN = CartOffset() / HalfTrackLength; // signed, ~[-1, 1]
+		return -(angle * angle + 0.1f * angVel * angVel + 0.5f * posN * posN);
+	}
+
 	// Map raw command u in [-1,1] to a physical force via the randomized motor model.
 	private float MotorForce(float u)
 	{
@@ -128,7 +138,7 @@ public partial class Cart : CharacterBody2D
 		_holdTicks--;
 
 		var (cartVel, poleAngVel, poleAngle) = ObserveNormalized();
-		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command); // normalized features + label
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command, Reward()); // features + label + reward
 		ApplyCommand(_command, delta);
 	}
 }
