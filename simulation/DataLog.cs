@@ -44,18 +44,18 @@ public static class DataLog
 		if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
 		_writer = new StreamWriter(outPath, append: false);
-		_writer.WriteLine("episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,motor_command");
+		_writer.WriteLine("episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,cart_position,motor_command");
 		_writer.Flush();
 	}
 
-	// One dataset row: episode batch id + step, then the 3 state features + the
+	// One dataset row: episode batch id + step, then the 4 state features + the
 	// exact command applied to that state.
-	public static void WriteRow(float cartVelocity, float poleAngularVelocity, float poleAngle, float motorCommand)
+	public static void WriteRow(float cartVelocity, float poleAngularVelocity, float poleAngle, float cartPosition, float motorCommand)
 	{
 		if (_writer == null) return;
 		_writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
-			"{0},{1},{2:R},{3:R},{4:R},{5:R}",
-			EpisodeId, _tickInEpisode, cartVelocity, poleAngularVelocity, poleAngle, motorCommand));
+			"{0},{1},{2:R},{3:R},{4:R},{5:R},{6:R}",
+			EpisodeId, _tickInEpisode, cartVelocity, poleAngularVelocity, poleAngle, cartPosition, motorCommand));
 		_tickInEpisode++;
 		TotalRows++;
 	}

@@ -22,6 +22,13 @@ public partial class Cart : CharacterBody2D
 	private float _command   = 0f;
 	private int   _holdTicks = 0;
 
+	// --- Track ---
+	// The cart slides along a 1D track centered on its spawn point. Position is
+	// measured as signed offset from that center; the track spans ±HalfTrackLength.
+	public const float TrackLength      = 1000f;             // sim units, full span
+	public const float HalfTrackLength  = TrackLength / 2f;  // ± limit from center
+	private float _trackCenterX;                             // spawn X, captured in _Ready
+
 	// Uniform random float in [min, max], from the shared seeded RNG.
 	private float Rand(float min, float max) => min + (float)DataLog.Rng.NextDouble() * (max - min);
 
@@ -40,7 +47,17 @@ public partial class Cart : CharacterBody2D
 
 		// Small random starting drift
 		Velocity = new Vector2(Rand(-120f, 120f), 0f);
+
+		// Track center = spawn point. Offset is measured from here.
+		_trackCenterX = Position.X;
 	}
+
+	// Signed cart offset from track center (sim units, raw). Used by reward/done.
+	public float CartOffset() => Position.X - _trackCenterX;
+
+	// Normalized cart position feature: |offset| / half-track  ->  [0, 1].
+	// NOTE: magnitude only (drops left/right sign), per the requested formula.
+	public float NormalizedCartPos() => Mathf.Abs(CartOffset()) / HalfTrackLength;
 
 	// Map raw command u in [-1,1] to a physical force via the randomized motor model.
 	private float MotorForce(float u)
@@ -111,7 +128,7 @@ public partial class Cart : CharacterBody2D
 		_holdTicks--;
 
 		var (cartVel, poleAngVel, poleAngle) = ObserveNormalized();
-		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command); // normalized features + label
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command); // normalized features + label
 		ApplyCommand(_command, delta);
 	}
 }

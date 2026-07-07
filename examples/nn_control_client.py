@@ -11,8 +11,9 @@ NORMALIZED to ~[-1, 1] (same scaling as the training CSV):
     cart_velocity         /= 500        (m/s-ish, sim units)
     pole_angular_velocity /= 10         (rad/s)
     pole_angle             = wrap(rad) / pi   (±180° -> ±1)
+    cart_position          = |offset| / half_track   (0 -> 1 at track end)
 
-    sim -> client : "cart_velocity,pole_angular_velocity,pole_angle,done"
+    sim -> client : "cart_velocity,pole_angular_velocity,pole_angle,cart_position,done"
     client -> sim : "<command>"   float in [-1, 1]
                     "R"           reset the episode
 """
@@ -48,8 +49,9 @@ def main():
                 buf += chunk
             line, buf = buf.split("\n", 1)
 
-            cart_v, pole_av, pole_a, done = line.split(",")
-            cart_v, pole_av, pole_a, done = float(cart_v), float(pole_av), float(pole_a), int(done)
+            cart_v, pole_av, pole_a, cart_p, done = line.split(",")
+            cart_v, pole_av, pole_a, cart_p, done = (
+                float(cart_v), float(pole_av), float(pole_a), float(cart_p), int(done))
 
             if done:
                 sock.sendall(b"R\n")   # pole fell -> reset episode
