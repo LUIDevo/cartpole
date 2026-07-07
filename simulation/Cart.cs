@@ -58,10 +58,30 @@ public partial class Cart : CharacterBody2D
 	public bool ExternalControl = false;
 
 	// Current observation: (cart velocity, pole angular velocity, pole angle).
+	// Raw physical units — used for episode-end/threshold logic, NOT model-facing.
 	public (float cartVel, float poleAngVel, float poleAngle) Observe()
 	{
 		var pole = GetNodeOrNull<RigidBody2D>("../Node2D");
 		return (Velocity.X, pole?.AngularVelocity ?? 0f, pole?.Rotation ?? 0f);
+	}
+
+	// --- Observation normalization (model-facing) ---
+	// Raw obs are mapped to ~[-1,1] so the network sees a consistent scale. The
+	// SAME scales are applied to the training CSV and the live control stream, so a
+	// model trained on the data receives identically-scaled inputs at inference.
+	public const float MaxCartVel    = 500f;      // matches the ApplyCommand speed clamp
+	public const float MaxPoleAngVel = 10f;       // rad/s, headroom over the ±3 start spin
+	public static readonly float MaxPoleAngle = Mathf.Pi; // rad, ±180° -> ±1
+
+	// Wrap a continuous rotation into [-π, π] before scaling (the pole can spin past
+	// ±180°; without wrapping the normalized angle would blow past ±1).
+	private static float WrapAngle(float a) => Mathf.Atan2(Mathf.Sin(a), Mathf.Cos(a));
+
+	// Observation normalized to ~[-1,1] for training data + control commands.
+	public (float cartVel, float poleAngVel, float poleAngle) ObserveNormalized()
+	{
+		var (v, av, ang) = Observe();
+		return (v / MaxCartVel, av / MaxPoleAngVel, WrapAngle(ang) / MaxPoleAngle);
 	}
 
 	// Apply one motor command (raw u in [-1,1]) for one physics step.
@@ -90,8 +110,8 @@ public partial class Cart : CharacterBody2D
 		}
 		_holdTicks--;
 
-		var (cartVel, poleAngVel, poleAngle) = Observe();
-		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command); // features + label
+		var (cartVel, poleAngVel, poleAngle) = ObserveNormalized();
+		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, _command); // normalized features + label
 		ApplyCommand(_command, delta);
 	}
 }

@@ -125,8 +125,8 @@ public partial class SimController : Node2D
 
 	private void SendObs()
 	{
-		var (cartVel, poleAngVel, poleAngle) = _cart.Observe();
-		bool done = Mathf.Abs(poleAngle) > BelowHorizon;
+		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized(); // model-facing scale
+		bool done = Mathf.Abs(_cart.Observe().poleAngle) > BelowHorizon;   // threshold on raw angle
 		ControlLink.WriteLine(string.Format(CultureInfo.InvariantCulture,
 			"{0:R},{1:R},{2:R},{3}", cartVel, poleAngVel, poleAngle, done ? 1 : 0));
 	}

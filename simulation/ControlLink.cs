@@ -2,7 +2,8 @@ using Godot;
 using System.Text;
 
 // Process-wide TCP control channel for an external policy (e.g. a neural network).
-// Lockstep protocol, newline-delimited ASCII:
+// Lockstep protocol, newline-delimited ASCII (obs are NORMALIZED to ~[-1,1],
+// same scaling as the training CSV — see Cart.ObserveNormalized):
 //   Godot  -> client : "cart_velocity,pole_angular_velocity,pole_angle,done\n"
 //   client -> Godot  : "<command>\n"   (float in [-1,1]),  or  "R\n" to reset the episode
 //

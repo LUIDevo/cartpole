@@ -6,7 +6,12 @@ Start the sim in control mode first:
 Then run this client:
     python examples/nn_control_client.py --port 9999
 
-Lockstep protocol (newline-delimited ASCII over TCP):
+Lockstep protocol (newline-delimited ASCII over TCP). Observations are
+NORMALIZED to ~[-1, 1] (same scaling as the training CSV):
+    cart_velocity         /= 500        (m/s-ish, sim units)
+    pole_angular_velocity /= 10         (rad/s)
+    pole_angle             = wrap(rad) / pi   (±180° -> ±1)
+
     sim -> client : "cart_velocity,pole_angular_velocity,pole_angle,done"
     client -> sim : "<command>"   float in [-1, 1]
                     "R"           reset the episode
@@ -18,10 +23,11 @@ import socket
 def policy(cart_velocity, pole_angular_velocity, pole_angle):
     """Replace this with your neural network forward pass.
 
-    Receives the observation, returns a motor command in [-1, 1].
+    Receives the NORMALIZED observation, returns a motor command in [-1, 1].
     Placeholder below is a trivial hand-tuned balancer (push toward upright).
+    Gains account for the normalized scale (angle /pi, ang-vel /10).
     """
-    return max(-1.0, min(1.0, 3.0 * pole_angle + 0.5 * pole_angular_velocity))
+    return max(-1.0, min(1.0, 9.4 * pole_angle + 5.0 * pole_angular_velocity))
 
 
 def main():
