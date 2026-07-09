@@ -88,6 +88,7 @@ public partial class SimController : Node2D
 		if (_blocking)
 		{
 			SendObs();
+			if (_cart.IsTerminal()) { RequestReset(); return; } // done -> auto-restart, no reply expected
 			string reply = ControlLink.ReadLine(30000);
 			if (reply == null)
 			{
@@ -102,7 +103,12 @@ public partial class SimController : Node2D
 
 		// Non-blocking request/response: send one obs, then poll for its reply
 		// across frames so the window keeps rendering. Cart coasts meanwhile.
-		if (!_awaitingReply) { SendObs(); _awaitingReply = true; }
+		if (!_awaitingReply)
+		{
+			SendObs();
+			if (_cart.IsTerminal()) { RequestReset(); return; } // done -> auto-restart, no reply expected
+			_awaitingReply = true;
+		}
 
 		if (!ControlLink.Connected) { _awaitingReply = false; return; } // client gone; keep window
 
@@ -133,13 +139,20 @@ public partial class SimController : Node2D
 			"{0:R},{1:R},{2:R},{3:R},{4:R},{5}", cartVel, poleAngVel, poleAngle, cartPos, reward, done ? 1 : 0));
 	}
 
+	// Ask the scene tree to reload (one episode = one scene). Deferred so it runs
+	// after the current physics frame. _resetPending gates further stepping.
+	private void RequestReset()
+	{
+		_resetPending = true;
+		GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
+	}
+
 	private void HandleReply(string reply, double delta)
 	{
 		reply = reply.Trim();
-		if (reply.Equals("R", StringComparison.OrdinalIgnoreCase))
+		if (reply.Equals("R", StringComparison.OrdinalIgnoreCase)) // legacy client-driven reset
 		{
-			_resetPending = true;
-			GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
+			RequestReset();
 			return;
 		}
 		if (float.TryParse(reply, NumberStyles.Float, CultureInfo.InvariantCulture, out float u))

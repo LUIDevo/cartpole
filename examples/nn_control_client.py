@@ -14,8 +14,8 @@ NORMALIZED to ~[-1, 1] (same scaling as the training CSV):
     cart_position          = |offset| / half_track   (0 -> 1 at track end)
 
     sim -> client : "cart_velocity,pole_angular_velocity,pole_angle,cart_position,reward,done"
-    client -> sim : "<command>"   float in [-1, 1]
-                    "R"           reset the episode
+    client -> sim : "<command>"   float in [-1, 1]   (nothing when done=1; the sim
+                                                      auto-restarts the episode)
 
 Every driven step is logged to a CSV (--out) with columns:
     episode_id,step,cart_velocity,pole_angular_velocity,pole_angle,cart_position,motor_command,reward,done
@@ -67,10 +67,10 @@ def main():
                 float(cart_p), float(reward), int(done))
 
             if done:
-                # log the terminal state (no command applied), then reset
+                # log the terminal state (no command applied). The sim auto-restarts
+                # on done, so we send nothing and just read the next episode's obs.
                 writer.writerow([episode_id, step, cart_v, pole_av, pole_a,
                                  cart_p, "", reward, done])
-                sock.sendall(b"R\n")   # pole fell -> reset episode
                 episode_id, step = episode_id + 1, 0
                 continue
 
