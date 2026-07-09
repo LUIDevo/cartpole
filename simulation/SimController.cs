@@ -127,9 +127,10 @@ public partial class SimController : Node2D
 	{
 		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized(); // model-facing scale
 		float cartPos = _cart.NormalizedCartPos();
+		float reward = _cart.Reward();    // per-step state cost (<= 0) for the current state
 		bool done = _cart.IsTerminal();   // pole past fail angle, or cart at a track end
 		ControlLink.WriteLine(string.Format(CultureInfo.InvariantCulture,
-			"{0:R},{1:R},{2:R},{3:R},{4}", cartVel, poleAngVel, poleAngle, cartPos, done ? 1 : 0));
+			"{0:R},{1:R},{2:R},{3:R},{4:R},{5}", cartVel, poleAngVel, poleAngle, cartPos, reward, done ? 1 : 0));
 	}
 
 	private void HandleReply(string reply, double delta)
