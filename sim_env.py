@@ -13,7 +13,7 @@ STATE_DIM = 4
 
 class SimEnv:
     def __init__(self, port=9999, host="127.0.0.1", launch=True, build=True,
-                 godot=None, connect_timeout=30.0):
+                 godot=None, connect_timeout=30.0, quiet=True):
         self.port = port
         self.host = host
         self._proc = None
@@ -31,9 +31,16 @@ class SimEnv:
             # --fixed-fps disables real-time sync: without it Godot paces physics at
             # wall-clock 60Hz, so training crawls at real-time speed. With it each
             # frame advances one 60Hz physics tick as fast as the CPU can go.
+            # quiet: Godot 4 headless dumps pages of harmless internal cleanup spam
+            # on exit ("BUG: Unreferenced static string", PagedAllocator, RID leaks)
+            # — times NUM_ENVS processes. Discard it; set quiet=False (or SIM_DEBUG=1)
+            # to see engine output when debugging the sim itself.
+            sink = None if os.environ.get("SIM_DEBUG") else (
+                subprocess.DEVNULL if quiet else None)
             self._proc = subprocess.Popen(
                 [godot, "--headless", "--fixed-fps", "60",
-                 "--path", str(SIM_PROJECT), "--", f"--port={port}"])
+                 "--path", str(SIM_PROJECT), "--", f"--port={port}"],
+                stdout=sink, stderr=sink)
 
         self._connect(connect_timeout)
 
