@@ -8,7 +8,7 @@ Then run this client:
 
 Lockstep protocol (newline-delimited ASCII over TCP). Observations are
 NORMALIZED to ~[-1, 1] (same scaling as the training CSV):
-    cart_velocity         /= 500        (m/s-ish, sim units)
+    cart_velocity         /= 1000       (m/s-ish, sim units)
     pole_angular_velocity /= 10         (rad/s)
     pole_angle             = wrap(rad) / pi   (±180° -> ±1)
     cart_position          = |offset| / half_track   (0 -> 1 at track end)

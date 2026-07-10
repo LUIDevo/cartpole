@@ -37,8 +37,8 @@ public partial class Cart : CharacterBody2D
 		// Cart weight, max accel (force) and max speed (power)
 		CartMass      = Rand(2.0f, 12.0f);
 		PoleMass      = Rand(0.5f, 6.0f);
-		MaxMotorForce = Rand(3000f, 12000f);
-		MaxMotorPower = Rand(1000f, 3500f);
+		MaxMotorForce = Rand(6000f, 20000f);   // higher peak force -> faster acceleration
+		MaxMotorPower = Rand(3000f, 8000f);    // higher power -> higher attainable top speed
 
 		// Randomized motor transfer function
 		_motorDeadzone = Rand(0.0f, 0.15f);
@@ -110,7 +110,7 @@ public partial class Cart : CharacterBody2D
 	// Raw obs are mapped to ~[-1,1] so the network sees a consistent scale. The
 	// SAME scales are applied to the training CSV and the live control stream, so a
 	// model trained on the data receives identically-scaled inputs at inference.
-	public const float MaxCartVel    = 500f;      // matches the ApplyCommand speed clamp
+	public const float MaxCartVel    = 1000f;     // matches the ApplyCommand speed clamp
 	public const float MaxPoleAngVel = 10f;       // rad/s, headroom over the ±3 start spin
 	public static readonly float MaxPoleAngle = Mathf.Pi; // rad, ±180° -> ±1
 
@@ -130,7 +130,7 @@ public partial class Cart : CharacterBody2D
 	{
 		float totalMass = CartMass + PoleMass;
 		float accel     = MotorForce(command) / totalMass;
-		float maxSpeed  = Mathf.Min(MaxMotorPower / (totalMass * 0.5f), 500f);
+		float maxSpeed  = Mathf.Min(MaxMotorPower / (totalMass * 0.5f), 1000f); // == MaxCartVel
 
 		Vector2 v = Velocity;
 		v.X = Mathf.Clamp(v.X + accel * (float)delta, -maxSpeed, maxSpeed);
