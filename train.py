@@ -11,7 +11,7 @@ import torch.nn as nn
 from sim_env import SimEnv
 
 # PPO training loop:
-#   collect a batch of episodes across NUM_ENVS parallel headless sims,
+#   collect a fixed budget of steps across NUM_ENVS parallel headless sims,
 #   then run several clipped-surrogate epochs over the batch.
 # PPO (vs plain REINFORCE): a learned value baseline slashes gradient variance,
 # and the clipped ratio lets us safely take EPOCHS optimization passes per batch
@@ -20,18 +20,24 @@ from sim_env import SimEnv
 # Rollout is vectorized: one Python thread steps ALL envs in lockstep with a
 # single batched forward pass per tick (no per-env threads -> no GIL contention;
 # send-all-then-recv-all overlaps the sims' physics computation).
+#
+# Each iteration collects STEPS_PER_ITER steps, NOT a fixed number of episodes:
+# with an episode quota, iteration time balloons as the policy learns to survive
+# longer. Episodes cut off by the budget are bootstrapped with the critic
+# (return of the unfinished tail ~ V(next_state)) and simply continue into the
+# next iteration — constant wall time per iteration, no discarded sim work.
 
 # inputs: cart_velocity, pole_angular_velocity, pole_angle, cart_position
 # output: motor command in [-1, 1]
 
 GAMMA = 0.99          # reward discount
 LR = 3e-4             # optimizer step size
-ITERATIONS = 200      # training iterations (one batch + PPO update each)
+ITERATIONS = 100      # training iterations (one batch + PPO update each)
 NUM_ENVS = 24         # parallel sim processes (16C/32T box; leave headroom)
-EPISODES = NUM_ENVS * 10  # episodes collected per update (split across the envs)
+STEPS_PER_ITER = 1024 * NUM_ENVS  # fixed data budget per iteration
 BASE_PORT = 9999      # envs listen on BASE_PORT, BASE_PORT+1, ...
-MAX_STEPS = 1000      # per-episode cap (~16s at 60Hz); a balancing policy would
-                      # otherwise never terminate and rollout would hang
+MAX_STEPS = 1000      # per-episode cap (~16s at 60Hz); rerandomizes the physics
+                      # even if the policy can balance indefinitely
 
 EPOCHS = 10           # optimization passes over each collected batch
 CLIP = 0.2            # PPO ratio clip
@@ -84,10 +90,14 @@ class Network(nn.Module):
         commands = actions.clamp(-1.0, 1.0)           # sim clamps too; keep aligned
         return commands.tolist(), actions.tolist(), d.log_prob(actions).tolist()
 
-def discounted_returns(rewards, gamma=GAMMA):
-    """Reward-to-go: R_t = r_t + gamma*r_{t+1} + ... (computed back to front)."""
+
+def discounted_returns(rewards, bootstrap=0.0, gamma=GAMMA):
+    """Reward-to-go: R_t = r_t + gamma*r_{t+1} + ... (computed back to front).
+
+    bootstrap: value of the state AFTER the last step — 0 for terminal episodes,
+    V(next_state) for episodes truncated by the step budget or MAX_STEPS."""
     returns = []
-    running = 0.0
+    running = float(bootstrap)
     for r in reversed(rewards):
         running = r + gamma * running
         returns.append(running)
@@ -95,79 +105,87 @@ def discounted_returns(rewards, gamma=GAMMA):
     return returns
 
 
-def collect(net, envs, per_env):
-    """Vectorized rollout: step every env in lockstep from one thread.
+class VecRunner:
+    """Steps NUM_ENVS sims in lockstep and slices the experience stream into
+    fixed-size PPO batches. Env state persists across collect() calls, so an
+    episode interrupted by the step budget continues in the next iteration."""
 
-    Each tick: stack the live envs' states, ONE batched forward to sample all
-    actions, send every command (phase 1), then read every reply (phase 2) —
-    the sims run their physics in parallel while Python does its bookkeeping.
-    Each env contributes per_env episodes; finished envs go idle.
+    def __init__(self, envs):
+        self.envs = envs
+        self.states = [torch.tensor(env.reset(), dtype=torch.float32) for env in envs]
+        self.steps = [0] * len(envs)   # steps taken in each env's current episode
 
-    Returns a list of episodes, each a list of (state, action, old_log_prob,
-    reward)."""
-    n = len(envs)
-    batch = []
-    episodes_left = [per_env] * n
-    episode = [[] for _ in range(n)]
-    steps = [0] * n
-    states = [torch.tensor(env.reset(), dtype=torch.float32) for env in envs]
-    active = list(range(n))
+    def collect(self, net, budget):
+        """Collect >= budget total steps. Returns (states, actions, old_log_probs,
+        returns) tensors plus (episode_rewards, episode_lengths) for episodes that
+        FINISHED during this call (terminal or MAX_STEPS)."""
+        n = len(self.envs)
+        episode = [[] for _ in range(n)]   # this call's transitions per env
+        all_states, all_actions, all_lps, all_returns = [], [], [], []
+        ep_rewards, ep_lens = [], []
 
-    while active:
-        stacked = torch.stack([states[i] for i in active])
-        commands, actions, old_lps = net.act_batch(stacked)
+        def finalize(i, bootstrap):
+            states_i, actions_i, lps_i, rewards_i = zip(*episode[i])
+            all_states.extend(states_i)
+            all_actions.extend(actions_i)
+            all_lps.extend(lps_i)
+            all_returns.extend(discounted_returns(rewards_i, bootstrap))
+            episode[i] = []
 
-        for j, i in enumerate(active):
-            envs[i].step_send(commands[j])
+        collected = 0
+        while collected < budget:
+            stacked = torch.stack(self.states)
+            commands, actions, old_lps = net.act_batch(stacked)
 
-        still_active = []
-        for j, i in enumerate(active):
-            next_state, reward, done = envs[i].step_recv()
-            episode[i].append((states[i], actions[j], old_lps[j], reward))
-            steps[i] += 1
+            for i, env in enumerate(self.envs):
+                env.step_send(commands[i])
 
-            if done or steps[i] >= MAX_STEPS:
-                if not done:
-                    envs[i].request_reset()  # step cap hit; force a fresh episode
-                batch.append(episode[i])
-                episode[i] = []
-                steps[i] = 0
-                episodes_left[i] -= 1
-                if episodes_left[i] > 0:
-                    states[i] = torch.tensor(envs[i].reset(), dtype=torch.float32)
-                    still_active.append(i)
-            else:
-                states[i] = torch.tensor(next_state, dtype=torch.float32)
-                still_active.append(i)
-        active = still_active
+            for i, env in enumerate(self.envs):
+                next_state, reward, done = env.step_recv()
+                episode[i].append((self.states[i], actions[i], old_lps[i], reward))
+                self.steps[i] += 1
+                collected += 1
 
-    return batch
+                if done:
+                    # Episode stats cover its full length, which may span calls.
+                    ep_lens.append(self.steps[i])
+                    ep_rewards.append(sum(r for _, _, _, r in episode[i]))
+                    finalize(i, bootstrap=0.0)          # true terminal: no value tail
+                    self.steps[i] = 0
+                    self.states[i] = torch.tensor(env.reset(), dtype=torch.float32)
+                elif self.steps[i] >= MAX_STEPS:
+                    env.request_reset()                 # rerandomize the physics
+                    ep_lens.append(self.steps[i])
+                    ep_rewards.append(sum(r for _, _, _, r in episode[i]))
+                    next_t = torch.tensor(next_state, dtype=torch.float32)
+                    with torch.no_grad():
+                        finalize(i, bootstrap=net.value(next_t))  # alive: bootstrap
+                    self.steps[i] = 0
+                    self.states[i] = torch.tensor(env.reset(), dtype=torch.float32)
+                else:
+                    self.states[i] = torch.tensor(next_state, dtype=torch.float32)
+
+        # Budget hit: bootstrap every unfinished episode with V(current state) and
+        # let it continue into the next collect() call.
+        pending = [i for i in range(n) if episode[i]]
+        if pending:
+            with torch.no_grad():
+                values = net.value(torch.stack([self.states[i] for i in pending]))
+            for j, i in enumerate(pending):
+                finalize(i, bootstrap=float(values[j]))
+
+        data = (
+            torch.stack(all_states),
+            torch.tensor(all_actions, dtype=torch.float32),
+            torch.tensor(all_lps, dtype=torch.float32),
+            torch.tensor(all_returns, dtype=torch.float32),
+        )
+        return data, ep_rewards, ep_lens
 
 
-def update(net, optimizer, batch):
-    """PPO update over a batch of episodes.
-
-    batch: list of episodes, each a list of (state, action, old_log_prob, reward).
-    Advantage = discounted return - V(s) (critic baseline), normalized.
-    Runs EPOCHS passes of the clipped surrogate + value MSE + entropy bonus.
-    Returns (last_loss, avg_episode_reward)."""
-    states, actions, old_lps, returns = [], [], [], []
-    total_reward = 0.0
-    for episode in batch:
-        rewards = [r for _, _, _, r in episode]
-        total_reward += sum(rewards)
-        returns.extend(discounted_returns(rewards))
-        for s, a, lp, _ in episode:
-            states.append(s)
-            actions.append(a)
-            old_lps.append(lp)
-
-    states = torch.stack(states)
-    actions = torch.tensor(actions, dtype=torch.float32)
-    old_lps = torch.tensor(old_lps, dtype=torch.float32)
-    returns = torch.tensor(returns, dtype=torch.float32)
-
-    # Advantages from the pre-update critic; fixed across the PPO epochs.
+def update(net, optimizer, states, actions, old_lps, returns):
+    """PPO update: EPOCHS passes of clipped surrogate + value MSE + entropy bonus.
+    Advantage = return - V(s) from the pre-update critic, normalized."""
     with torch.no_grad():
         advantages = returns - net.value(states)
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -191,7 +209,7 @@ def update(net, optimizer, batch):
         loss.backward()
         nn.utils.clip_grad_norm_(net.parameters(), 0.5)
         optimizer.step()
-    return loss.item(), total_reward / len(batch)
+    return loss.item()
 
 
 def make_envs():
@@ -207,15 +225,19 @@ def main():
     net = Network()
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
     envs = make_envs()
-    per_env = EPISODES // NUM_ENVS
+    runner = VecRunner(envs)
     try:
         for iteration in range(ITERATIONS):
-            batch = collect(net, envs, per_env)
-            avg_len = sum(len(ep) for ep in batch) / len(batch)
-            loss, avg_reward = update(net, optimizer, batch)
+            data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)
+            loss = update(net, optimizer, *data)
             std = float(net.log_std.detach().exp())
-            print(f"iter {iteration:3d}  avg_reward {avg_reward:8.2f}  "
-                  f"avg_len {avg_len:6.1f}  std {std:5.3f}  loss {loss:8.4f}",
+            if ep_lens:
+                stats = (f"avg_reward {sum(ep_rewards)/len(ep_rewards):8.2f}  "
+                         f"avg_len {sum(ep_lens)/len(ep_lens):6.1f}  "
+                         f"eps {len(ep_lens):3d}")
+            else:
+                stats = "avg_reward      n/a  avg_len    n/a  eps   0"
+            print(f"iter {iteration:3d}  {stats}  std {std:5.3f}  loss {loss:8.4f}",
                   flush=True)
             if (iteration + 1) % 20 == 0:
                 torch.save(net.state_dict(), "policy.pt")  # periodic checkpoint
