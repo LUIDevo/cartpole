@@ -55,7 +55,6 @@ public partial class SimController : Node2D
 			_blocking = headless; // window => don't freeze rendering
 			if (_cart != null) _cart.ExternalControl = true;
 			ControlLink.EnsureListening(port);
-			GD.Print($"Mode: Control ({(_blocking ? "lockstep" : "realtime")}), waiting for client on port {port}...");
 		}
 		else if (headless)
 		{

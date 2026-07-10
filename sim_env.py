@@ -74,6 +74,14 @@ class SimEnv:
         self._sock.sendall(f"{command}\n".encode("ascii"))
         return self._parse(self._read_line())
 
+    def request_reset(self):
+        """Force an episode reset mid-episode (sim's legacy 'R' command).
+
+        Use when a step cap is hit: the sim reloads the scene and the next
+        reset() call reads the fresh episode's first observation.
+        """
+        self._sock.sendall(b"R\n")
+
     def close(self):
         if self._sock is not None:
             self._sock.close()

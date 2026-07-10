@@ -28,7 +28,6 @@ public static class ControlLink
 			return;
 		}
 		Active = true;
-		GD.Print($"ControlLink: listening on port {port}");
 	}
 
 	public static bool Connected =>
@@ -43,7 +42,6 @@ public static class ControlLink
 			_client = _server.TakeConnection();
 			_client.SetNoDelay(true);
 			_rx.Clear();
-			GD.Print("ControlLink: client connected.");
 			return true;
 		}
 		return false;

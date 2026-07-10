@@ -45,8 +45,8 @@ public partial class Cart : CharacterBody2D
 		_motorExponent = Rand(0.7f, 1.6f);
 		_motorBias     = Rand(-0.1f, 0.1f);
 
-		// Small random starting drift
-		Velocity = new Vector2(Rand(-120f, 120f), 0f);
+		// Small random starting drift (kept mild so starts are savable)
+		Velocity = new Vector2(Rand(-60f, 60f), 0f);
 
 		// Track center = spawn point. Offset is measured from here.
 		_trackCenterX = Position.X;
@@ -73,14 +73,17 @@ public partial class Cart : CharacterBody2D
 		return Mathf.Abs(angle) > FailAngle || CartAtEnd();
 	}
 
-	// Per-step reward (state cost, always <= 0). Penalizes tilt, spin, and drift
-	// from track center:  -(angle² + 0.1·angVel² + 0.5·(pos/half_track)²).
+	// Per-step reward: +1 survival bonus minus posture costs
+	// (angle² + 0.1·angVel² + 0.5·(pos/half_track)²).
+	// The +1 makes staying alive strictly better than terminating: without it the
+	// per-step cost is always <= 0, so the return-maximizing policy is to end the
+	// episode as fast as possible (fall over immediately).
 	// angle/angVel are raw (rad, rad/s); position is signed-normalized to [-1,1].
 	public float Reward()
 	{
 		var (_, angVel, angle) = Observe();
 		float posN = CartOffset() / HalfTrackLength; // signed, ~[-1, 1]
-		return -(angle * angle + 0.1f * angVel * angVel + 0.5f * posN * posN);
+		return 1.0f - (angle * angle + 0.1f * angVel * angVel + 0.5f * posN * posN);
 	}
 
 	// Map raw command u in [-1,1] to a physical force via the randomized motor model.

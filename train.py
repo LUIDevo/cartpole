@@ -1,4 +1,10 @@
+import os
 import threading
+
+# This torch build has no kernels for the local GPU (sm_61) -> it would fall back
+# to CPU anyway while spewing capability warnings. Hide the GPU before importing
+# torch so the probe never runs. Training is CPU-bound on the sim regardless.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import torch
 import torch.nn as nn
@@ -19,10 +25,12 @@ from sim_env import SimEnv
 
 GAMMA = 0.99          # reward discount
 LR = 1e-3             # optimizer step size
-ITERATIONS = 10       # policy updates
-EPISODES = 100        # episodes collected per update (split across the envs)
+ITERATIONS = 200      # policy updates (REINFORCE needs many small steps)
+EPISODES = 96         # episodes collected per update (split across the envs)
 NUM_ENVS = 8          # parallel sim processes
 BASE_PORT = 9999      # envs listen on BASE_PORT, BASE_PORT+1, ...
+MAX_STEPS = 1000      # per-episode cap (~16s at 60Hz); a balancing policy would
+                      # otherwise never terminate and rollout would hang
 
 class Network(nn.Module):
     """Continuous Gaussian policy: outputs the mean motor command in [-1, 1];
@@ -79,11 +87,15 @@ def run_episodes(net, sim, n_episodes, out):
         episode = []
         state = torch.tensor(sim.reset(), dtype=torch.float32)
         done = False
-        while not done:
+        for _ in range(MAX_STEPS):
             command, action = net.act(state)
             next_state, reward, done = sim.step(command)
             episode.append((state, action, reward))
             state = torch.tensor(next_state, dtype=torch.float32)
+            if done:
+                break
+        if not done:
+            sim.request_reset()  # step cap hit; force the sim to start a new episode
         out.append(episode)
 
 

@@ -28,10 +28,12 @@ public partial class Pole : RigidBody2D
 		_stateInitialized = true;
 
 		// Starting tilt angle (pole rotates about the pin pivot at its origin).
-		float startAngle = Rand(-0.8f, 0.8f); // rad, ~±46°
+		// Kept mild (~±14°): from ±46° with heavy spin the pole is often unsavable,
+		// so episodes carried no learning signal and the policy never improved.
+		float startAngle = Rand(-0.25f, 0.25f); // rad, ~±14°
 		state.Transform = new Transform2D(startAngle, state.Transform.Origin);
 
-		state.AngularVelocity = Rand(-3.0f, 3.0f);               // rad/s starting spin
-		state.LinearVelocity  = new Vector2(Rand(-120f, 120f), 0f); // starting push
+		state.AngularVelocity = Rand(-1.0f, 1.0f);               // rad/s starting spin
+		state.LinearVelocity  = new Vector2(Rand(-50f, 50f), 0f);   // starting push
 	}
 }
