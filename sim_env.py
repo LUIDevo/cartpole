@@ -74,8 +74,17 @@ class SimEnv:
 
         Returns (next_state, reward, done).
         """
+        self.step_send(command)
+        return self.step_recv()
+
+    # Split-phase stepping for vectorized rollouts: send commands to ALL envs
+    # first, then read all replies — the sims compute their physics ticks in
+    # parallel while Python is still writing to the others.
+    def step_send(self, command):
         command = max(-1.0, min(1.0, float(command)))
         self._sock.sendall(f"{command}\n".encode("ascii"))
+
+    def step_recv(self):
         return self._parse(self._read_line())
 
     def request_reset(self):

@@ -1,5 +1,4 @@
 import os
-import threading
 
 # This torch build has no kernels for the local GPU (sm_61) -> it would fall back
 # to CPU anyway while spewing capability warnings. Hide the GPU before importing
@@ -17,6 +16,10 @@ from sim_env import SimEnv
 # PPO (vs plain REINFORCE): a learned value baseline slashes gradient variance,
 # and the clipped ratio lets us safely take EPOCHS optimization passes per batch
 # instead of one — much more learning per sim step.
+#
+# Rollout is vectorized: one Python thread steps ALL envs in lockstep with a
+# single batched forward pass per tick (no per-env threads -> no GIL contention;
+# send-all-then-recv-all overlaps the sims' physics computation).
 
 # inputs: cart_velocity, pole_angular_velocity, pole_angle, cart_position
 # output: motor command in [-1, 1]
@@ -24,8 +27,8 @@ from sim_env import SimEnv
 GAMMA = 0.99          # reward discount
 LR = 3e-4             # optimizer step size
 ITERATIONS = 200      # training iterations (one batch + PPO update each)
-EPISODES = 96         # episodes collected per update (split across the envs)
-NUM_ENVS = 8          # parallel sim processes
+NUM_ENVS = 24         # parallel sim processes (16C/32T box; leave headroom)
+EPISODES = NUM_ENVS * 10  # episodes collected per update (split across the envs)
 BASE_PORT = 9999      # envs listen on BASE_PORT, BASE_PORT+1, ...
 MAX_STEPS = 1000      # per-episode cap (~16s at 60Hz); a balancing policy would
                       # otherwise never terminate and rollout would hang
@@ -70,15 +73,16 @@ class Network(nn.Module):
         return torch.distributions.Normal(self(states), self.log_std.exp())
 
     @torch.no_grad()
-    def act(self, state):
-        """Sample one action for env rollout. no_grad -> safe to call from many
-        collection threads at once (builds no autograd graph). Returns the
-        clamped motor command sent to the sim, the raw sampled action, and its
-        log-prob under the current (pre-update) policy — PPO's 'old' log-prob."""
-        d = self.dist(state)
-        action = d.sample()                           # continuous, may exceed [-1,1]
-        command = float(action.clamp(-1.0, 1.0))      # sim clamps too; keep aligned
-        return command, float(action), float(d.log_prob(action))
+    def act_batch(self, states):
+        """Sample one action per env in a single forward pass (rollout only).
+
+        states: [n, 4] tensor. Returns per-env lists: clamped motor commands sent
+        to the sims, raw sampled actions, and their log-probs under the current
+        (pre-update) policy — PPO's 'old' log-probs."""
+        d = self.dist(states)
+        actions = d.sample()                          # continuous, may exceed [-1,1]
+        commands = actions.clamp(-1.0, 1.0)           # sim clamps too; keep aligned
+        return commands.tolist(), actions.tolist(), d.log_prob(actions).tolist()
 
 def discounted_returns(rewards, gamma=GAMMA):
     """Reward-to-go: R_t = r_t + gamma*r_{t+1} + ... (computed back to front)."""
@@ -91,24 +95,53 @@ def discounted_returns(rewards, gamma=GAMMA):
     return returns
 
 
-def run_episodes(net, sim, n_episodes, out):
-    """Roll out n_episodes on one sim, appending each to `out` (thread's own list).
+def collect(net, envs, per_env):
+    """Vectorized rollout: step every env in lockstep from one thread.
 
-    Each episode is a list of (state, action, old_log_prob, reward)."""
-    for _ in range(n_episodes):
-        episode = []
-        state = torch.tensor(sim.reset(), dtype=torch.float32)
-        done = False
-        for _ in range(MAX_STEPS):
-            command, action, old_lp = net.act(state)
-            next_state, reward, done = sim.step(command)
-            episode.append((state, action, old_lp, reward))
-            state = torch.tensor(next_state, dtype=torch.float32)
-            if done:
-                break
-        if not done:
-            sim.request_reset()  # step cap hit; force the sim to start a new episode
-        out.append(episode)
+    Each tick: stack the live envs' states, ONE batched forward to sample all
+    actions, send every command (phase 1), then read every reply (phase 2) —
+    the sims run their physics in parallel while Python does its bookkeeping.
+    Each env contributes per_env episodes; finished envs go idle.
+
+    Returns a list of episodes, each a list of (state, action, old_log_prob,
+    reward)."""
+    n = len(envs)
+    batch = []
+    episodes_left = [per_env] * n
+    episode = [[] for _ in range(n)]
+    steps = [0] * n
+    states = [torch.tensor(env.reset(), dtype=torch.float32) for env in envs]
+    active = list(range(n))
+
+    while active:
+        stacked = torch.stack([states[i] for i in active])
+        commands, actions, old_lps = net.act_batch(stacked)
+
+        for j, i in enumerate(active):
+            envs[i].step_send(commands[j])
+
+        still_active = []
+        for j, i in enumerate(active):
+            next_state, reward, done = envs[i].step_recv()
+            episode[i].append((states[i], actions[j], old_lps[j], reward))
+            steps[i] += 1
+
+            if done or steps[i] >= MAX_STEPS:
+                if not done:
+                    envs[i].request_reset()  # step cap hit; force a fresh episode
+                batch.append(episode[i])
+                episode[i] = []
+                steps[i] = 0
+                episodes_left[i] -= 1
+                if episodes_left[i] > 0:
+                    states[i] = torch.tensor(envs[i].reset(), dtype=torch.float32)
+                    still_active.append(i)
+            else:
+                states[i] = torch.tensor(next_state, dtype=torch.float32)
+                still_active.append(i)
+        active = still_active
+
+    return batch
 
 
 def update(net, optimizer, batch):
@@ -177,17 +210,7 @@ def main():
     per_env = EPISODES // NUM_ENVS
     try:
         for iteration in range(ITERATIONS):
-            outs = [[] for _ in envs]
-            threads = [
-                threading.Thread(target=run_episodes, args=(net, env, per_env, out))
-                for env, out in zip(envs, outs)
-            ]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            batch = [episode for out in outs for episode in out]
+            batch = collect(net, envs, per_env)
             avg_len = sum(len(ep) for ep in batch) / len(batch)
             loss, avg_reward = update(net, optimizer, batch)
             std = float(net.log_std.detach().exp())
