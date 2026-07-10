@@ -190,7 +190,7 @@ def main():
             batch = [episode for out in outs for episode in out]
             avg_len = sum(len(ep) for ep in batch) / len(batch)
             loss, avg_reward = update(net, optimizer, batch)
-            std = float(net.log_std.exp())
+            std = float(net.log_std.detach().exp())
             print(f"iter {iteration:3d}  avg_reward {avg_reward:8.2f}  "
                   f"avg_len {avg_len:6.1f}  std {std:5.3f}  loss {loss:8.4f}",
                   flush=True)
