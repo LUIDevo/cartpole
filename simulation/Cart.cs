@@ -35,15 +35,18 @@ public partial class Cart : CharacterBody2D
 	public override void _Ready()
 	{
 		// Cart weight, max accel (force) and max speed (power)
-		CartMass      = Rand(2.0f, 12.0f);
-		PoleMass      = Rand(0.5f, 6.0f);
-		MaxMotorForce = Rand(6000f, 20000f);   // higher peak force -> faster acceleration
-		MaxMotorPower = Rand(3000f, 8000f);    // higher power -> higher attainable top speed
+		// Ranges kept moderate: with the original wide spans (mass 2-12, deadzone
+		// up to 0.15, exponent 0.7-1.6...) a memoryless policy can't identify which
+		// cart it's driving, and training stalled. Widen gradually once it learns.
+		CartMass      = Rand(3.0f, 8.0f);
+		PoleMass      = Rand(1.0f, 4.0f);
+		MaxMotorForce = Rand(8000f, 16000f);   // higher peak force -> faster acceleration
+		MaxMotorPower = Rand(4000f, 7000f);    // higher power -> higher attainable top speed
 
 		// Randomized motor transfer function
-		_motorDeadzone = Rand(0.0f, 0.15f);
-		_motorExponent = Rand(0.7f, 1.6f);
-		_motorBias     = Rand(-0.1f, 0.1f);
+		_motorDeadzone = Rand(0.0f, 0.05f);
+		_motorExponent = Rand(0.9f, 1.2f);
+		_motorBias     = Rand(-0.03f, 0.03f);
 
 		// Small random starting drift (kept mild so starts are savable)
 		Velocity = new Vector2(Rand(-60f, 60f), 0f);

@@ -28,8 +28,12 @@ class SimEnv:
                     ["dotnet", "build", str(SIM_PROJECT / "simulation.sln"), "-c", "Debug"],
                     check=True, stdout=subprocess.DEVNULL)
             # headless + --port => blocking lockstep (deterministic, as fast as we step)
+            # --fixed-fps disables real-time sync: without it Godot paces physics at
+            # wall-clock 60Hz, so training crawls at real-time speed. With it each
+            # frame advances one 60Hz physics tick as fast as the CPU can go.
             self._proc = subprocess.Popen(
-                [godot, "--headless", "--path", str(SIM_PROJECT), "--", f"--port={port}"])
+                [godot, "--headless", "--fixed-fps", "60",
+                 "--path", str(SIM_PROJECT), "--", f"--port={port}"])
 
         self._connect(connect_timeout)
 

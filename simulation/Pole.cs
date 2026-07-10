@@ -11,11 +11,13 @@ public partial class Pole : RigidBody2D
 	public override void _Ready()
 	{
 		// Mass and material are plain properties — safe to set here.
-		Mass = Rand(0.5f, 20.0f); // kg (real pole weight)
+		// Range narrowed from 0.5-20 kg: a 40x inertia spread made the control
+		// problem unidentifiable for a memoryless policy. Widen once it learns.
+		Mass = Rand(1.0f, 5.0f); // kg (real pole weight)
 
 		var mat = PhysicsMaterialOverride ?? new PhysicsMaterial();
-		mat.Friction = Rand(0.0f, 0.8f); // surface friction variation
-		mat.Bounce   = Rand(0.0f, 0.5f); // bounciness variation
+		mat.Friction = Rand(0.1f, 0.5f); // surface friction variation
+		mat.Bounce   = Rand(0.0f, 0.2f); // bounciness variation
 		PhysicsMaterialOverride = mat;
 	}
 
