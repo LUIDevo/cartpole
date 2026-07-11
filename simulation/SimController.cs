@@ -35,6 +35,16 @@ public partial class SimController : Node2D
 		bool headless = DisplayServer.GetName() == "headless";
 		_cart = GetNodeOrNull<Cart>("CharacterBody2D");
 
+		var pole1  = GetNodeOrNull<RigidBody2D>("Node2D");
+		var pole2  = GetNodeOrNull<RigidBody2D>("Pole2");
+		var joint2 = GetNodeOrNull<PinJoint2D>("PinJoint2D2");
+		if (pole1 != null && pole2 != null && joint2 != null)
+		{
+			Vector2 tip = pole1.GlobalTransform * new Vector2(0f, -200f);
+			pole2.GlobalPosition = tip;
+			joint2.GlobalPosition = tip;
+		}
+
 		if (port > 0)
 		{
 			_mode = Mode.Control;
@@ -83,7 +93,7 @@ public partial class SimController : Node2D
 
 	private bool FallenPastGrace(double delta)
 	{
-		var (_, _, poleAngle) = _cart.Observe();
+		var (_, _, poleAngle, _, _) = _cart.Observe();
 		if (Mathf.Abs(poleAngle) > BelowHorizon) _belowTime += delta;
 		else _belowTime = 0.0;
 		return _belowTime >= _graceSeconds;
@@ -91,12 +101,13 @@ public partial class SimController : Node2D
 
 	private void SendObs()
 	{
-		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized();
+		var (cartVel, poleAngVel, poleAngle, pole2AngVel, pole2Angle) = _cart.ObserveNormalized();
 		float cartPos = _cart.NormalizedCartPos();
 		float reward = _cart.Reward();
 		bool done = _cart.IsTerminal();
 		ControlLink.WriteLine(string.Format(CultureInfo.InvariantCulture,
-			"{0:R},{1:R},{2:R},{3:R},{4:R},{5}", cartVel, poleAngVel, poleAngle, cartPos, reward, done ? 1 : 0));
+			"{0:R},{1:R},{2:R},{3:R},{4:R},{5:R},{6:R},{7}",
+			cartVel, poleAngVel, poleAngle, cartPos, pole2AngVel, pole2Angle, reward, done ? 1 : 0));
 	}
 
 	private void RequestReset()

@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from math_env import MathCartPoleVec
+from math_env import MathCartPoleVec, STATE_DIM
 
 torch.set_num_threads(4)
 
@@ -33,14 +33,14 @@ class Network(nn.Module):
     def __init__(self):
         super().__init__()
         self.actor = nn.Sequential(
-            nn.Linear(4, 64),
+            nn.Linear(STATE_DIM, 64),
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
             nn.Linear(64, 1),
         )
         self.critic = nn.Sequential(
-            nn.Linear(4, 64),
+            nn.Linear(STATE_DIM, 64),
             nn.Tanh(),
             nn.Linear(64, 64),
             nn.Tanh(),
@@ -74,7 +74,7 @@ class VecRunner:
     def collect(self, net, budget):
         n = self.env.n
         T = budget // n
-        states = torch.empty((T, n, 4))
+        states = torch.empty((T, n, STATE_DIM))
         actions = torch.empty((T, n))
         old_lps = torch.empty((T, n))
         rewards = torch.empty((T, n))
@@ -112,7 +112,7 @@ class VecRunner:
             self.obs = torch.from_numpy(obs)
 
         with torch.no_grad():
-            values = net.value(states.reshape(T * n, 4)).reshape(T, n)
+            values = net.value(states.reshape(T * n, STATE_DIM)).reshape(T, n)
             next_values = torch.empty((T, n))
             next_values[:-1] = values[1:]
             next_values[-1] = net.value(self.obs)
@@ -131,7 +131,7 @@ class VecRunner:
             advantages[t] = last_gae
         returns = advantages + values
 
-        data = (states.reshape(-1, 4), actions.reshape(-1), old_lps.reshape(-1),
+        data = (states.reshape(-1, STATE_DIM), actions.reshape(-1), old_lps.reshape(-1),
                 advantages.reshape(-1), returns.reshape(-1))
         return data, ep_rewards, ep_lens
 

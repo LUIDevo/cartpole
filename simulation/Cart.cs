@@ -48,15 +48,17 @@ public partial class Cart : CharacterBody2D
 
 	public bool IsTerminal()
 	{
-		var (_, _, angle) = Observe();
-		return Mathf.Abs(angle) > FailAngle || CartAtEnd();
+		var (_, _, angle, _, angle2) = Observe();
+		return Mathf.Abs(angle) > FailAngle || Mathf.Abs(angle2) > FailAngle || CartAtEnd();
 	}
 
 	public float Reward()
 	{
-		var (_, angVel, angle) = Observe();
+		var (_, angVel, angle, angVel2, angle2) = Observe();
 		float posN = CartOffset() / HalfTrackLength;
-		return 1.0f - (angle * angle + 0.1f * angVel * angVel + 0.5f * posN * posN);
+		return 1.0f - (angle * angle + angle2 * angle2
+			+ 0.1f * (angVel * angVel + angVel2 * angVel2)
+			+ 0.5f * posN * posN);
 	}
 
 	private float MotorForce(float u)
@@ -71,10 +73,13 @@ public partial class Cart : CharacterBody2D
 
 	public bool ExternalControl = false;
 
-	public (float cartVel, float poleAngVel, float poleAngle) Observe()
+	public (float cartVel, float poleAngVel, float poleAngle, float pole2AngVel, float pole2Angle) Observe()
 	{
-		var pole = GetNodeOrNull<RigidBody2D>("../Node2D");
-		return (Velocity.X, pole?.AngularVelocity ?? 0f, pole?.Rotation ?? 0f);
+		var pole  = GetNodeOrNull<RigidBody2D>("../Node2D");
+		var pole2 = GetNodeOrNull<RigidBody2D>("../Pole2");
+		return (Velocity.X,
+			pole?.AngularVelocity ?? 0f, pole?.Rotation ?? 0f,
+			pole2?.AngularVelocity ?? 0f, pole2?.Rotation ?? 0f);
 	}
 
 	public const float MaxCartVel    = 1000f;
@@ -83,10 +88,12 @@ public partial class Cart : CharacterBody2D
 
 	private static float WrapAngle(float a) => Mathf.Atan2(Mathf.Sin(a), Mathf.Cos(a));
 
-	public (float cartVel, float poleAngVel, float poleAngle) ObserveNormalized()
+	public (float cartVel, float poleAngVel, float poleAngle, float pole2AngVel, float pole2Angle) ObserveNormalized()
 	{
-		var (v, av, ang) = Observe();
-		return (v / MaxCartVel, av / MaxPoleAngVel, WrapAngle(ang) / MaxPoleAngle);
+		var (v, av, ang, av2, ang2) = Observe();
+		return (v / MaxCartVel,
+			av / MaxPoleAngVel, WrapAngle(ang) / MaxPoleAngle,
+			av2 / MaxPoleAngVel, WrapAngle(ang2) / MaxPoleAngle);
 	}
 
 	public void ApplyCommand(float command, double delta)
@@ -127,7 +134,7 @@ public partial class Cart : CharacterBody2D
 		}
 		_holdTicks--;
 
-		var (cartVel, poleAngVel, poleAngle) = ObserveNormalized();
+		var (cartVel, poleAngVel, poleAngle, _, _) = ObserveNormalized();
 		bool done = IsTerminal() || DataLog.IsLastStep;
 		DataLog.WriteRow(cartVel, poleAngVel, poleAngle, NormalizedCartPos(), _command, Reward(), done);
 		ApplyCommand(_command, delta);

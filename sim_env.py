@@ -7,7 +7,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent
 SIM_PROJECT = REPO / "simulation"
 
-STATE_DIM = 4
+STATE_DIM = 6
 
 
 class SimEnv:
@@ -59,8 +59,9 @@ class SimEnv:
 
     @staticmethod
     def _parse(line):
-        cart_v, pole_av, pole_a, cart_p, reward, done = line.split(",")
-        state = [float(cart_v), float(pole_av), float(pole_a), float(cart_p)]
+        cart_v, pole_av, pole_a, cart_p, pole2_av, pole2_a, reward, done = line.split(",")
+        state = [float(cart_v), float(pole_av), float(pole_a), float(cart_p),
+                 float(pole2_av), float(pole2_a)]
         return state, float(reward), int(done)
 
     def reset(self):
