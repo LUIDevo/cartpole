@@ -21,3 +21,10 @@ Plans for the future:
 Then to prepare for double pendulum
 - [ ] Make a larger model
 - [ ] Redo the simulation pipeline to deal with a double pendulum (especially godot)
+
+Then to build the real thing
+- [ ] Design and build a physical double pendulum balancing robot
+- [ ] Train it using ML, using everything above (sim-to-real via TTT / domain randomization)
+
+Current single pendulum balancing demo in simulation
+![Cartpole balancing demo](media/demo.gif)
