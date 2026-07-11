@@ -114,7 +114,13 @@ public partial class SimController : Node2D
 			return;
 		}
 		if (float.TryParse(reply, NumberStyles.Float, CultureInfo.InvariantCulture, out float u))
-			_cart.ApplyCommand(Mathf.Clamp(u, -1f, 1f), delta);
+		{
+			u = Mathf.Clamp(u, -1f, 1f);
+			bool left  = Input.IsActionPressed("ui_left");
+			bool right = Input.IsActionPressed("ui_right");
+			if (left != right) u = left ? -1f : 1f;
+			_cart.ApplyCommand(u, delta);
+		}
 	}
 
 	private void StepDataGen()

@@ -24,6 +24,8 @@ def main():
     net.eval()
     print(f"loaded {args.policy}"
           + (" (stochastic)" if args.stochastic else " (deterministic)"))
+    print("focus the sim window: hold Left/Right arrows to shove the cart, "
+          "release to let the policy recover")
 
     episode = 0
     with SimEnv(port=args.port, headless=False) as sim:
