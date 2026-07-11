@@ -3,3 +3,11 @@
 Cartpole is an RL neural network that is trained to balance a pendulum along a singular axis from a motor command. The goal is to scale it to deal with a double or even triple pendulum through simulations, and then via Test Time Training be used in real life.
 
 The network has only 3 layers currently, and is managed by PPO and Adam optimiser.
+
+It takes about 150 steps before the model fully converges and is able to consistently balance the pole forever. 
+
+Outside of the model, we also used 2 types of simulations - Godot, and math using Python
+
+Math was used to quickly train the model without having to deal with pinging delays, as pinging through parallel cores to multiple godot instances drastically increased training times.
+
+Then after we get our weights, we load them and watch the simulation in Godot using 'watch.py'. Inside the simulation, the user is able to attemp to throw the robot off by moving the cart, and the cart is able to rebalance the pole in real time.
