@@ -101,7 +101,7 @@ class MathCartPoleVec:
             self.v / MAX_CART_VEL,
             self.omega / MAX_POLE_ANGVEL,
             wrapped / MAX_POLE_ANGLE,
-            np.abs(self.x) / HALF_TRACK,
+            self.x / HALF_TRACK,
         ], axis=1).astype(np.float32)
 
     def reward(self):

@@ -14,7 +14,7 @@ GAMMA = 0.99
 GAE_LAMBDA = 0.95
 LR = 3e-4
 ITERATIONS = 500
-NUM_ENVS = 64
+NUM_ENVS = 24
 STEPS_PER_ITER = 1024 * NUM_ENVS
 MAX_STEPS = 1000
 
@@ -22,9 +22,11 @@ EPOCHS = 10
 MINIBATCHES = 4
 TARGET_KL = 0.02
 CLIP = 0.2
-ENTROPY_COEF = 0.01
+ENTROPY_COEF = 0.0
 VALUE_COEF = 0.5
 INIT_STD = 0.5
+MIN_STD = 0.05
+MAX_STD = 0.6
 
 
 class Network(nn.Module):
@@ -160,6 +162,7 @@ def update(net, optimizer, states, actions, old_lps, advantages, returns):
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             optimizer.step()
+            net.log_std.data.clamp_(np.log(MIN_STD), np.log(MAX_STD))
 
             with torch.no_grad():
                 approx_kl = (old_lps[mb] - new_lps).mean()
@@ -176,6 +179,9 @@ def main():
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
     runner = VecRunner(MathCartPoleVec(NUM_ENVS))
     for iteration in range(ITERATIONS):
+        frac = 1.0 - iteration / ITERATIONS
+        for group in optimizer.param_groups:
+            group["lr"] = LR * frac
         data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)
         loss = update(net, optimizer, *data)
         std = float(net.log_std.detach().exp())

@@ -40,7 +40,7 @@ public partial class Cart : CharacterBody2D
 
 	public float CartOffset() => Position.X - _trackCenterX;
 
-	public float NormalizedCartPos() => Mathf.Abs(CartOffset()) / HalfTrackLength;
+	public float NormalizedCartPos() => CartOffset() / HalfTrackLength;
 
 	public static readonly float FailAngle = Mathf.Pi / 2f;
 
