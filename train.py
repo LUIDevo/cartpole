@@ -2,17 +2,17 @@ import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
+import numpy as np
 import torch
 import torch.nn as nn
 
-from sim_env import SimEnv
+from math_env import MathCartPoleVec
 
 GAMMA = 0.99
 LR = 3e-4
 ITERATIONS = 100
 NUM_ENVS = 24
 STEPS_PER_ITER = 1024 * NUM_ENVS
-BASE_PORT = 9999
 MAX_STEPS = 1000
 
 EPOCHS = 10
@@ -69,13 +69,13 @@ def discounted_returns(rewards, bootstrap=0.0, gamma=GAMMA):
 
 
 class VecRunner:
-    def __init__(self, envs):
-        self.envs = envs
-        self.states = [torch.tensor(env.reset(), dtype=torch.float32) for env in envs]
-        self.steps = [0] * len(envs)
+    def __init__(self, env):
+        self.env = env
+        self.states = [torch.from_numpy(s) for s in env.reset_all()]
+        self.steps = [0] * env.n
 
     def collect(self, net, budget):
-        n = len(self.envs)
+        n = self.env.n
         episode = [[] for _ in range(n)]
         all_states, all_actions, all_lps, all_returns = [], [], [], []
         ep_rewards, ep_lens = [], []
@@ -93,32 +93,29 @@ class VecRunner:
             stacked = torch.stack(self.states)
             commands, actions, old_lps = net.act_batch(stacked)
 
-            for i, env in enumerate(self.envs):
-                env.step_send(commands[i])
+            obs, rewards, dones = self.env.step(np.asarray(commands))
 
-            for i, env in enumerate(self.envs):
-                next_state, reward, done = env.step_recv()
-                episode[i].append((self.states[i], actions[i], old_lps[i], reward))
+            for i in range(n):
+                episode[i].append((self.states[i], actions[i], old_lps[i], float(rewards[i])))
                 self.steps[i] += 1
                 collected += 1
 
-                if done:
+                if dones[i]:
                     ep_lens.append(self.steps[i])
                     ep_rewards.append(sum(r for _, _, _, r in episode[i]))
                     finalize(i, bootstrap=0.0)
                     self.steps[i] = 0
-                    self.states[i] = torch.tensor(env.reset(), dtype=torch.float32)
+                    self.states[i] = torch.from_numpy(self.env.reset_at(i))
                 elif self.steps[i] >= MAX_STEPS:
-                    env.request_reset()
                     ep_lens.append(self.steps[i])
                     ep_rewards.append(sum(r for _, _, _, r in episode[i]))
-                    next_t = torch.tensor(next_state, dtype=torch.float32)
+                    next_t = torch.from_numpy(obs[i])
                     with torch.no_grad():
                         finalize(i, bootstrap=net.value(next_t))
                     self.steps[i] = 0
-                    self.states[i] = torch.tensor(env.reset(), dtype=torch.float32)
+                    self.states[i] = torch.from_numpy(self.env.reset_at(i))
                 else:
-                    self.states[i] = torch.tensor(next_state, dtype=torch.float32)
+                    self.states[i] = torch.from_numpy(obs[i])
 
         pending = [i for i in range(n) if episode[i]]
         if pending:
@@ -161,36 +158,24 @@ def update(net, optimizer, states, actions, old_lps, returns):
     return loss.item()
 
 
-def make_envs():
-    envs = [SimEnv(port=BASE_PORT, build=True)]
-    for i in range(1, NUM_ENVS):
-        envs.append(SimEnv(port=BASE_PORT + i, build=False))
-    return envs
-
-
 def main():
     net = Network()
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
-    envs = make_envs()
-    try:
-        runner = VecRunner(envs)
-        for iteration in range(ITERATIONS):
-            data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)
-            loss = update(net, optimizer, *data)
-            std = float(net.log_std.detach().exp())
-            if ep_lens:
-                stats = (f"avg_reward {sum(ep_rewards)/len(ep_rewards):8.2f}  "
-                         f"avg_len {sum(ep_lens)/len(ep_lens):6.1f}  "
-                         f"eps {len(ep_lens):3d}")
-            else:
-                stats = "avg_reward      n/a  avg_len    n/a  eps   0"
-            print(f"iter {iteration:3d}  {stats}  std {std:5.3f}  loss {loss:8.4f}",
-                  flush=True)
-            if (iteration + 1) % 20 == 0:
-                torch.save(net.state_dict(), "policy.pt")
-    finally:
-        for env in envs:
-            env.close()
+    runner = VecRunner(MathCartPoleVec(NUM_ENVS))
+    for iteration in range(ITERATIONS):
+        data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)
+        loss = update(net, optimizer, *data)
+        std = float(net.log_std.detach().exp())
+        if ep_lens:
+            stats = (f"avg_reward {sum(ep_rewards)/len(ep_rewards):8.2f}  "
+                     f"avg_len {sum(ep_lens)/len(ep_lens):6.1f}  "
+                     f"eps {len(ep_lens):3d}")
+        else:
+            stats = "avg_reward      n/a  avg_len    n/a  eps   0"
+        print(f"iter {iteration:3d}  {stats}  std {std:5.3f}  loss {loss:8.4f}",
+              flush=True)
+        if (iteration + 1) % 20 == 0:
+            torch.save(net.state_dict(), "policy.pt")
 
     torch.save(net.state_dict(), "policy.pt")
     print("saved policy.pt")
