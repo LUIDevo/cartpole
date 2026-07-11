@@ -59,6 +59,10 @@ class MathCartPoleVec:
         self._randomize(np.array([i]))
         return self.observe()[i]
 
+    def reset_where(self, mask):
+        self._randomize(np.flatnonzero(mask))
+        return self.observe()
+
     def _motor_force(self, u):
         u = np.clip(u + self.bias, -1.0, 1.0)
         mag = np.abs(u)

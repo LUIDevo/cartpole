@@ -8,7 +8,10 @@ import torch.nn as nn
 
 from math_env import MathCartPoleVec
 
+torch.set_num_threads(4)
+
 GAMMA = 0.99
+GAE_LAMBDA = 0.95
 LR = 3e-4
 ITERATIONS = 100
 NUM_ENVS = 24
@@ -16,6 +19,8 @@ STEPS_PER_ITER = 1024 * NUM_ENVS
 MAX_STEPS = 1000
 
 EPOCHS = 10
+MINIBATCHES = 4
+TARGET_KL = 0.02
 CLIP = 0.2
 ENTROPY_COEF = 0.01
 VALUE_COEF = 0.5
@@ -54,107 +59,115 @@ class Network(nn.Module):
     def act_batch(self, states):
         d = self.dist(states)
         actions = d.sample()
-        commands = actions.clamp(-1.0, 1.0)
-        return commands.tolist(), actions.tolist(), d.log_prob(actions).tolist()
-
-
-def discounted_returns(rewards, bootstrap=0.0, gamma=GAMMA):
-    returns = []
-    running = float(bootstrap)
-    for r in reversed(rewards):
-        running = r + gamma * running
-        returns.append(running)
-    returns.reverse()
-    return returns
+        return actions.clamp(-1.0, 1.0), actions, d.log_prob(actions)
 
 
 class VecRunner:
     def __init__(self, env):
         self.env = env
-        self.states = [torch.from_numpy(s) for s in env.reset_all()]
-        self.steps = [0] * env.n
+        self.obs = torch.from_numpy(env.reset_all())
+        self.ep_len = np.zeros(env.n, dtype=np.int64)
+        self.ep_rew = np.zeros(env.n)
 
     def collect(self, net, budget):
         n = self.env.n
-        episode = [[] for _ in range(n)]
-        all_states, all_actions, all_lps, all_returns = [], [], [], []
+        T = budget // n
+        states = torch.empty((T, n, 4))
+        actions = torch.empty((T, n))
+        old_lps = torch.empty((T, n))
+        rewards = torch.empty((T, n))
+        terminal = torch.zeros((T, n), dtype=torch.bool)
+        truncated = torch.zeros((T, n), dtype=torch.bool)
+        boot_idx, boot_obs = [], []
         ep_rewards, ep_lens = [], []
 
-        def finalize(i, bootstrap):
-            states_i, actions_i, lps_i, rewards_i = zip(*episode[i])
-            all_states.extend(states_i)
-            all_actions.extend(actions_i)
-            all_lps.extend(lps_i)
-            all_returns.extend(discounted_returns(rewards_i, bootstrap))
-            episode[i] = []
+        for t in range(T):
+            commands, acts, lps = net.act_batch(self.obs)
+            obs, rew, done = self.env.step(commands.numpy())
 
-        collected = 0
-        while collected < budget:
-            stacked = torch.stack(self.states)
-            commands, actions, old_lps = net.act_batch(stacked)
+            states[t] = self.obs
+            actions[t] = acts
+            old_lps[t] = lps
+            rewards[t] = torch.from_numpy(rew).float()
 
-            obs, rewards, dones = self.env.step(np.asarray(commands))
+            self.ep_len += 1
+            self.ep_rew += rew
+            trunc = ~done & (self.ep_len >= MAX_STEPS)
+            terminal[t] = torch.from_numpy(done)
+            truncated[t] = torch.from_numpy(trunc)
 
-            for i in range(n):
-                episode[i].append((self.states[i], actions[i], old_lps[i], float(rewards[i])))
-                self.steps[i] += 1
-                collected += 1
+            reset_mask = done | trunc
+            if reset_mask.any():
+                for i in np.flatnonzero(trunc):
+                    boot_idx.append((t, i))
+                    boot_obs.append(obs[i])
+                for i in np.flatnonzero(reset_mask):
+                    ep_lens.append(int(self.ep_len[i]))
+                    ep_rewards.append(float(self.ep_rew[i]))
+                self.ep_len[reset_mask] = 0
+                self.ep_rew[reset_mask] = 0.0
+                obs = self.env.reset_where(reset_mask)
+            self.obs = torch.from_numpy(obs)
 
-                if dones[i]:
-                    ep_lens.append(self.steps[i])
-                    ep_rewards.append(sum(r for _, _, _, r in episode[i]))
-                    finalize(i, bootstrap=0.0)
-                    self.steps[i] = 0
-                    self.states[i] = torch.from_numpy(self.env.reset_at(i))
-                elif self.steps[i] >= MAX_STEPS:
-                    ep_lens.append(self.steps[i])
-                    ep_rewards.append(sum(r for _, _, _, r in episode[i]))
-                    next_t = torch.from_numpy(obs[i])
-                    with torch.no_grad():
-                        finalize(i, bootstrap=net.value(next_t))
-                    self.steps[i] = 0
-                    self.states[i] = torch.from_numpy(self.env.reset_at(i))
-                else:
-                    self.states[i] = torch.from_numpy(obs[i])
+        with torch.no_grad():
+            values = net.value(states.reshape(T * n, 4)).reshape(T, n)
+            next_values = torch.empty((T, n))
+            next_values[:-1] = values[1:]
+            next_values[-1] = net.value(self.obs)
+            next_values[terminal] = 0.0
+            if boot_obs:
+                boots = net.value(torch.from_numpy(np.stack(boot_obs)))
+                for k, (t, i) in enumerate(boot_idx):
+                    next_values[t, i] = boots[k]
 
-        pending = [i for i in range(n) if episode[i]]
-        if pending:
-            with torch.no_grad():
-                values = net.value(torch.stack([self.states[i] for i in pending]))
-            for j, i in enumerate(pending):
-                finalize(i, bootstrap=float(values[j]))
+        not_done = (~(terminal | truncated)).float()
+        advantages = torch.empty((T, n))
+        last_gae = torch.zeros(n)
+        for t in reversed(range(T)):
+            delta = rewards[t] + GAMMA * next_values[t] - values[t]
+            last_gae = delta + GAMMA * GAE_LAMBDA * not_done[t] * last_gae
+            advantages[t] = last_gae
+        returns = advantages + values
 
-        data = (
-            torch.stack(all_states),
-            torch.tensor(all_actions, dtype=torch.float32),
-            torch.tensor(all_lps, dtype=torch.float32),
-            torch.tensor(all_returns, dtype=torch.float32),
-        )
+        data = (states.reshape(-1, 4), actions.reshape(-1), old_lps.reshape(-1),
+                advantages.reshape(-1), returns.reshape(-1))
         return data, ep_rewards, ep_lens
 
 
-def update(net, optimizer, states, actions, old_lps, returns):
-    with torch.no_grad():
-        advantages = returns - net.value(states)
+def update(net, optimizer, states, actions, old_lps, advantages, returns):
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+    batch = states.shape[0]
+    mb_size = batch // MINIBATCHES
     loss = torch.tensor(0.0)
     for _ in range(EPOCHS):
-        d = net.dist(states)
-        new_lps = d.log_prob(actions)
-        ratio = (new_lps - old_lps).exp()
-        surrogate = torch.min(
-            ratio * advantages,
-            ratio.clamp(1.0 - CLIP, 1.0 + CLIP) * advantages,
-        ).mean()
-        value_loss = (net.value(states) - returns).pow(2).mean()
-        entropy = d.entropy().mean()
+        perm = torch.randperm(batch)
+        stop = False
+        for k in range(MINIBATCHES):
+            mb = perm[k * mb_size:(k + 1) * mb_size]
+            d = net.dist(states[mb])
+            new_lps = d.log_prob(actions[mb])
+            ratio = (new_lps - old_lps[mb]).exp()
+            surrogate = torch.min(
+                ratio * advantages[mb],
+                ratio.clamp(1.0 - CLIP, 1.0 + CLIP) * advantages[mb],
+            ).mean()
+            value_loss = (net.value(states[mb]) - returns[mb]).pow(2).mean()
+            entropy = d.entropy().mean()
 
-        loss = -surrogate + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
-        optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(net.parameters(), 0.5)
-        optimizer.step()
+            loss = -surrogate + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
+            optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(net.parameters(), 0.5)
+            optimizer.step()
+
+            with torch.no_grad():
+                approx_kl = (old_lps[mb] - new_lps).mean()
+            if approx_kl > TARGET_KL:
+                stop = True
+                break
+        if stop:
+            break
     return loss.item()
 
 
