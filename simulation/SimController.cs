@@ -2,32 +2,18 @@ using Godot;
 using System;
 using System.Globalization;
 
-// Root of env.tscn. Picks a mode from cmdline args (after `--`) and whether a
-// window exists:
-//   DataGen  : headless, no --port. Cart self-drives random policy; rows -> CSV.
-//              --out=<path> --ticks=<per-episode> --episodes=<count> --seed=<int>
-//   Control  : --port=N. External policy drives the cart over TCP.
-//              headless  -> strict blocking lockstep (deterministic; for training)
-//              windowed  -> non-blocking request/response (smooth; watch it live)
-//   Watch    : windowed, no --port. Cart self-drives random policy on screen,
-//              resets when the pole falls. Just run it to SEE something.
 public partial class SimController : Node2D
 {
 	private enum Mode { DataGen, Control, Watch }
 	private Mode _mode;
-	private bool _blocking;        // control mode: block the frame waiting for a command
 	private bool _resetPending;
-	private bool _awaitingReply;   // non-blocking control: obs sent, waiting for reply
-	private double _belowTime; // seconds the pole has been continuously below horizontal
+	private double _belowTime;
 	private int    _watchTicks;
 	private Cart   _cart;
 
-	// Pole tip drops below the horizontal (top semicircle) when |angle| > 90°.
-	// We only reset after it has stayed below that long, so brief dips that recover
-	// keep their (valuable, near-upright) datapoints instead of ending the episode.
 	private static readonly float BelowHorizon = Mathf.Pi / 2f;
-	private double _graceSeconds = 1.0;         // must stay below this long -> reset (--grace)
-	private const int WatchMaxTicks = 3000;     // safety cap for watch mode
+	private double _graceSeconds = 1.0;
+	private const int WatchMaxTicks = 3000;
 
 	public override void _Ready()
 	{
@@ -52,7 +38,6 @@ public partial class SimController : Node2D
 		if (port > 0)
 		{
 			_mode = Mode.Control;
-			_blocking = headless; // window => don't freeze rendering
 			if (_cart != null) _cart.ExternalControl = true;
 			ControlLink.EnsureListening(port);
 		}
@@ -64,7 +49,7 @@ public partial class SimController : Node2D
 		}
 		else
 		{
-			_mode = Mode.Watch; // just watch the random policy on screen
+			_mode = Mode.Watch;
 			GD.Print("Mode: Watch (random policy). Pole resets when it falls.");
 		}
 	}
@@ -82,64 +67,38 @@ public partial class SimController : Node2D
 	private void StepControl(double delta)
 	{
 		if (_resetPending) return;
-		if (!ControlLink.Accept()) return; // idle until a client connects
+		if (!ControlLink.Accept()) return;
 
-		if (_blocking)
+		SendObs();
+		if (_cart.IsTerminal()) { RequestReset(); return; }
+		string reply = ControlLink.ReadLine(30000);
+		if (reply == null)
 		{
-			SendObs();
-			if (_cart.IsTerminal()) { RequestReset(); return; } // done -> auto-restart, no reply expected
-			string reply = ControlLink.ReadLine(30000);
-			if (reply == null)
-			{
-				GD.Print("ControlLink: client disconnected — quitting.");
-				ControlLink.Close();
-				GetTree().Quit();
-				return;
-			}
-			HandleReply(reply, delta);
+			ControlLink.Close();
+			GetTree().Quit();
 			return;
 		}
-
-		// Non-blocking request/response: send one obs, then poll for its reply
-		// across frames so the window keeps rendering. Cart coasts meanwhile.
-		if (!_awaitingReply)
-		{
-			SendObs();
-			if (_cart.IsTerminal()) { RequestReset(); return; } // done -> auto-restart, no reply expected
-			_awaitingReply = true;
-		}
-
-		if (!ControlLink.Connected) { _awaitingReply = false; return; } // client gone; keep window
-
-		string line = ControlLink.TryReadLine();
-		if (line != null)
-		{
-			_awaitingReply = false;
-			HandleReply(line, delta);
-		}
+		HandleReply(reply, delta);
 	}
 
-	// True once the pole has stayed below horizontal continuously for GraceSeconds.
 	private bool FallenPastGrace(double delta)
 	{
 		var (_, _, poleAngle) = _cart.Observe();
 		if (Mathf.Abs(poleAngle) > BelowHorizon) _belowTime += delta;
-		else _belowTime = 0.0; // recovered above horizontal -> keep the episode alive
+		else _belowTime = 0.0;
 		return _belowTime >= _graceSeconds;
 	}
 
 	private void SendObs()
 	{
-		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized(); // model-facing scale
+		var (cartVel, poleAngVel, poleAngle) = _cart.ObserveNormalized();
 		float cartPos = _cart.NormalizedCartPos();
-		float reward = _cart.Reward();    // per-step state cost (<= 0) for the current state
-		bool done = _cart.IsTerminal();   // pole past fail angle, or cart at a track end
+		float reward = _cart.Reward();
+		bool done = _cart.IsTerminal();
 		ControlLink.WriteLine(string.Format(CultureInfo.InvariantCulture,
 			"{0:R},{1:R},{2:R},{3:R},{4:R},{5}", cartVel, poleAngVel, poleAngle, cartPos, reward, done ? 1 : 0));
 	}
 
-	// Ask the scene tree to reload (one episode = one scene). Deferred so it runs
-	// after the current physics frame. _resetPending gates further stepping.
 	private void RequestReset()
 	{
 		_resetPending = true;
@@ -149,7 +108,7 @@ public partial class SimController : Node2D
 	private void HandleReply(string reply, double delta)
 	{
 		reply = reply.Trim();
-		if (reply.Equals("R", StringComparison.OrdinalIgnoreCase)) // legacy client-driven reset
+		if (reply.Equals("R", StringComparison.OrdinalIgnoreCase))
 		{
 			RequestReset();
 			return;
@@ -162,9 +121,6 @@ public partial class SimController : Node2D
 	{
 		if (_resetPending) return;
 
-		// Episode ends when the pole has fallen below horizontal past the grace
-		// period, the cart hits a track end (hard boundary, no grace), or the
-		// per-episode tick cap is hit (safety bound).
 		if (!FallenPastGrace(GetPhysicsProcessDeltaTime()) && !_cart.CartAtEnd() && !DataLog.EpisodeDone) return;
 
 		DataLog.EndEpisode();

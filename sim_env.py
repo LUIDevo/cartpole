@@ -7,13 +7,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent
 SIM_PROJECT = REPO / "simulation"
 
-# Observation columns fed to the network (reward/done are training signals, not inputs).
 STATE_DIM = 4
 
 
 class SimEnv:
     def __init__(self, port=9999, host="127.0.0.1", launch=True, build=True,
-                 godot=None, connect_timeout=30.0, quiet=True):
+                 godot=None, connect_timeout=30.0, quiet=True, headless=True):
         self.port = port
         self.host = host
         self._proc = None
@@ -27,18 +26,11 @@ class SimEnv:
                 subprocess.run(
                     ["dotnet", "build", str(SIM_PROJECT / "simulation.sln"), "-c", "Debug"],
                     check=True, stdout=subprocess.DEVNULL)
-            # headless + --port => blocking lockstep (deterministic, as fast as we step)
-            # --fixed-fps disables real-time sync: without it Godot paces physics at
-            # wall-clock 60Hz, so training crawls at real-time speed. With it each
-            # frame advances one 60Hz physics tick as fast as the CPU can go.
-            # quiet: Godot 4 headless dumps pages of harmless internal cleanup spam
-            # on exit ("BUG: Unreferenced static string", PagedAllocator, RID leaks)
-            # — times NUM_ENVS processes. Discard it; set quiet=False (or SIM_DEBUG=1)
-            # to see engine output when debugging the sim itself.
             sink = None if os.environ.get("SIM_DEBUG") else (
                 subprocess.DEVNULL if quiet else None)
+            engine_flags = ["--headless", "--fixed-fps", "60"] if headless else []
             self._proc = subprocess.Popen(
-                [godot, "--headless", "--fixed-fps", "60",
+                [godot, *engine_flags,
                  "--path", str(SIM_PROJECT), "--", f"--port={port}"],
                 stdout=sink, stderr=sink)
 
@@ -72,21 +64,13 @@ class SimEnv:
         return state, float(reward), int(done)
 
     def reset(self):
-        """Read the initial observation of a fresh episode; return the state (len-4 list)."""
         state, _, _ = self._parse(self._read_line())
         return state
 
     def step(self, command):
-        """Send a motor command in [-1,1], read the resulting obs.
-
-        Returns (next_state, reward, done).
-        """
         self.step_send(command)
         return self.step_recv()
 
-    # Split-phase stepping for vectorized rollouts: send commands to ALL envs
-    # first, then read all replies — the sims compute their physics ticks in
-    # parallel while Python is still writing to the others.
     def step_send(self, command):
         command = max(-1.0, min(1.0, float(command)))
         self._sock.sendall(f"{command}\n".encode("ascii"))
@@ -95,11 +79,6 @@ class SimEnv:
         return self._parse(self._read_line())
 
     def request_reset(self):
-        """Force an episode reset mid-episode (sim's legacy 'R' command).
-
-        Use when a step cap is hit: the sim reloads the scene and the next
-        reset() call reads the fresh episode's first observation.
-        """
         self._sock.sendall(b"R\n")
 
     def close(self):

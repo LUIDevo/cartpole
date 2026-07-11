@@ -1,13 +1,6 @@
 using Godot;
 using System.Text;
 
-// Process-wide TCP control channel for an external policy (e.g. a neural network).
-// Lockstep protocol, newline-delimited ASCII (obs are NORMALIZED to ~[-1,1],
-// same scaling as the training CSV — see Cart.ObserveNormalized):
-//   Godot  -> client : "cart_velocity,pole_angular_velocity,pole_angle,cart_position,done\n"
-//   client -> Godot  : "<command>\n"   (float in [-1,1]),  or  "R\n" to reset the episode
-//
-// State is static so it survives GetTree().ReloadCurrentScene() (episode resets).
 public static class ControlLink
 {
 	private static TcpServer _server;
@@ -18,7 +11,7 @@ public static class ControlLink
 
 	public static void EnsureListening(int port)
 	{
-		if (_server != null) return; // already listening (persists across reloads)
+		if (_server != null) return;
 		_server = new TcpServer();
 		Error err = _server.Listen((ushort)port);
 		if (err != Error.Ok)
@@ -33,7 +26,6 @@ public static class ControlLink
 	public static bool Connected =>
 		_client != null && _client.GetStatus() == StreamPeerTcp.Status.Connected;
 
-	// Accept a pending client (single client at a time).
 	public static bool Accept()
 	{
 		if (Connected) return true;
@@ -53,9 +45,6 @@ public static class ControlLink
 		_client.PutData(Encoding.ASCII.GetBytes(line + "\n"));
 	}
 
-	// Blocking read of one '\n'-terminated line with a wall-clock timeout (ms).
-	// Returns null on timeout or disconnect. Blocking is intentional: the sim runs
-	// in lockstep and only advances once the policy has replied with a command.
 	public static string ReadLine(int timeoutMs)
 	{
 		if (!Connected) return null;
@@ -88,31 +77,6 @@ public static class ControlLink
 				OS.DelayMsec(1);
 			}
 		}
-	}
-
-	// Non-blocking: return one buffered line if a full '\n'-terminated line is
-	// available, else null. Never stalls the frame (used for windowed/visual mode).
-	public static string TryReadLine()
-	{
-		if (!Connected) return null;
-		_client.Poll();
-		int avail = _client.GetAvailableBytes();
-		if (avail > 0)
-		{
-			var res = _client.GetData(avail);
-			if ((Error)(int)res[0] == Error.Ok)
-				_rx.Append(Encoding.ASCII.GetString((byte[])res[1]));
-		}
-		for (int i = 0; i < _rx.Length; i++)
-		{
-			if (_rx[i] == '\n')
-			{
-				string line = _rx.ToString(0, i).TrimEnd('\r');
-				_rx.Remove(0, i + 1);
-				return line;
-			}
-		}
-		return null;
 	}
 
 	public static void Close()
