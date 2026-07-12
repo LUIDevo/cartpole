@@ -26,6 +26,14 @@ UP_BONUS = 0.25
 ALIVE_BONUS = 1.0
 DEATH_PENALTY = 10.0
 
+# swing-up shaping: pay for rotational speed while an up-goal pole hangs
+# below horizontal, capped at the speed sufficient to coast to upright
+W_SWING = 0.07
+OMEGA_SWING = np.sqrt(4.0 * GRAVITY * R_COM / (I_COM_PER_M + R_COM**2))
+
+NEAR_UP_FRAC = 0.35
+CONFIRM_FRAC = 0.3
+
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
 
@@ -58,6 +66,11 @@ class MathCartPoleVec:
     def _rand_goal_pairs(self, k):
         pick = self.rng.choice(len(GOAL_PAIRS), size=k, p=GOAL_WEIGHTS)
         return GOAL_PAIRS[pick, 0], GOAL_PAIRS[pick, 1]
+
+    def _rand_angles(self, k):
+        wide = self.rng.uniform(-np.pi, np.pi, size=k)
+        near_up = self.rng.normal(0.0, 0.3, size=k)
+        return np.where(self.rng.random(k) < NEAR_UP_FRAC, near_up, wide)
 
     def _randomize(self, idx):
         u = lambda lo, hi: self.rng.uniform(lo, hi, size=np.shape(idx))

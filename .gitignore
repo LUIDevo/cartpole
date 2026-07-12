@@ -3,6 +3,7 @@
 simulation/.godot/
 simulation/android/
 simulation/export_presets.cfg
+training_log.csv
 
 # .NET / C# build output (Godot Mono)
 simulation/.mono/
