@@ -13,6 +13,10 @@ POLE_WIDTH = 20.0
 R_COM = POLE_LEN / 2.0
 I_COM_PER_M = (POLE_WIDTH**2 + POLE_LEN**2) / 12.0
 ANGULAR_DAMP = 0.15
+# integration safety: bound pivot impulse (wall stops) and angular velocity
+# so the explicit-Euler quadratic Coriolis terms cannot blow up
+A_PIVOT_MAX = 20.0 * 2000.0
+OMEGA_MAX = 25.0
 
 STATE_DIM = 8
 
@@ -39,10 +43,11 @@ GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
 
 
 class MathCartPoleVec:
-    def __init__(self, n, seed=None, goal_switching=True):
+    def __init__(self, n, seed=None, goal_switching=True, fixed_goal=None):
         self.n = n
         self.rng = np.random.default_rng(seed)
-        self.goal_switching = goal_switching
+        self.fixed_goal = fixed_goal
+        self.goal_switching = goal_switching and fixed_goal is None
 
         z = lambda: np.zeros(n)
         self.x, self.v = z(), z()
@@ -78,8 +83,8 @@ class MathCartPoleVec:
         self.pole_mass_belief[idx] = u(1.0, 4.0)
         self.m1[idx] = u(1.0, 5.0)
         self.m2[idx] = u(1.0, 5.0)
-        self.max_force[idx] = u(8000.0, 16000.0)
-        self.max_power[idx] = u(4000.0, 7000.0)
+        self.max_force[idx] = u(16000.0, 32000.0)
+        self.max_power[idx] = u(5000.0, 9000.0)
         self.deadzone[idx] = u(0.0, 0.05)
         self.exponent[idx] = u(0.9, 1.2)
         self.bias[idx] = u(-0.03, 0.03)
@@ -92,7 +97,10 @@ class MathCartPoleVec:
         self.theta2[idx] = self._rand_angles(k)
         self.omega2[idx] = u(-2.0, 2.0)
 
-        self.g1[idx], self.g2[idx] = self._rand_goal_pairs(k)
+        if self.fixed_goal is not None:
+            self.g1[idx], self.g2[idx] = self.fixed_goal
+        else:
+            self.g1[idx], self.g2[idx] = self._rand_goal_pairs(k)
         self.switch_in[idx] = self.rng.integers(
             GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=np.shape(idx))
 
@@ -134,7 +142,7 @@ class MathCartPoleVec:
         at_lo, at_hi = x <= -HALF_TRACK, x >= HALF_TRACK
         x = np.clip(x, -HALF_TRACK, HALF_TRACK)
         v = np.where((at_lo & (v < 0.0)) | (at_hi & (v > 0.0)), 0.0, v)
-        a_pivot = (v - v_old) / DT
+        a_pivot = np.clip((v - v_old) / DT, -A_PIVOT_MAX, A_PIVOT_MAX)
 
         # Double pendulum on a pivot with prescribed acceleration (Lagrange).
         m1, m2 = self.m1, self.m2
@@ -158,8 +166,8 @@ class MathCartPoleVec:
         alpha2 = (rhs2 * m11 - m12 * rhs1) / det
 
         damp = max(0.0, 1.0 - ANGULAR_DAMP * DT)
-        omega1 = (self.omega1 + alpha1 * DT) * damp
-        omega2 = (self.omega2 + alpha2 * DT) * damp
+        omega1 = np.clip((self.omega1 + alpha1 * DT) * damp, -OMEGA_MAX, OMEGA_MAX)
+        omega2 = np.clip((self.omega2 + alpha2 * DT) * damp, -OMEGA_MAX, OMEGA_MAX)
         theta1 = self.theta1 + omega1 * DT
         theta2 = self.theta2 + omega2 * DT
 
@@ -184,8 +192,15 @@ class MathCartPoleVec:
                 self.switch_in[expired] = self.rng.integers(
                     GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=k)
 
-        done = self.terminal()
-        rew = self.reward() - DEATH_PENALTY * done
+        # belt-and-braces: any env whose state went non-finite is killed
+        bad = ~(np.isfinite(self.theta1) & np.isfinite(self.omega1)
+                & np.isfinite(self.theta2) & np.isfinite(self.omega2)
+                & np.isfinite(self.v) & np.isfinite(self.x))
+        if bad.any():
+            self._randomize(np.flatnonzero(bad))
+
+        done = self.terminal() | bad
+        rew = np.where(bad, -DEATH_PENALTY, self.reward() - DEATH_PENALTY * done)
         return self.observe(), rew, done
 
     def observe(self):

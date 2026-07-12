@@ -1,3 +1,4 @@
+import argparse
 import math
 import os
 
@@ -192,25 +193,43 @@ def update(net, optimizer, states, actions, old_lps, advantages, returns):
     return loss.item()
 
 
+GOAL_VECS = {"uu": (1.0, 1.0), "ud": (1.0, -1.0), "du": (-1.0, 1.0)}
+
+
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--goal", choices=sorted(GOAL_VECS),
+                    help="train a single-goal specialist (dd needs no policy)")
+    ap.add_argument("--init", help="checkpoint to warm-start from")
+    ap.add_argument("--out", help="output checkpoint path")
+    ap.add_argument("--iters", type=int, default=ITERATIONS)
+    args = ap.parse_args()
+
+    out = args.out or (f"policy_{args.goal}.pt" if args.goal else "policy.pt")
+    fixed = GOAL_VECS[args.goal] if args.goal else None
+    log_path = f"training_log_{args.goal}.csv" if args.goal else "training_log.csv"
+
     net = Network()
+    if args.init:
+        net.load_state_dict(torch.load(args.init, weights_only=True))
+        print(f"warm-started from {args.init}")
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
-    runner = VecRunner(MathCartPoleVec(NUM_ENVS))
-    log = open("training_log.csv", "w")
+    runner = VecRunner(MathCartPoleVec(NUM_ENVS, fixed_goal=fixed))
+    log = open(log_path, "w")
     log.write("iter,avg_reward,avg_len,episodes,std,loss,"
               "score_uu,score_ud,score_du,score_dd\n")
     try:
-        run(net, optimizer, runner, log)
+        run(net, optimizer, runner, log, args.iters, out)
     except KeyboardInterrupt:
-        print("\ninterrupted — saving policy.pt")
+        print(f"\ninterrupted — saving {out}")
     log.close()
-    torch.save(net.state_dict(), "policy.pt")
-    print("saved policy.pt")
+    torch.save(net.state_dict(), out)
+    print(f"saved {out}")
 
 
-def run(net, optimizer, runner, log):
-    for iteration in range(ITERATIONS):
-        frac = max(0.1, 1.0 - iteration / ITERATIONS)
+def run(net, optimizer, runner, log, iters, out):
+    for iteration in range(iters):
+        frac = max(0.1, 1.0 - iteration / iters)
         for group in optimizer.param_groups:
             group["lr"] = LR * frac
         data, ep_rewards, ep_lens, scores = runner.collect(net, STEPS_PER_ITER)
@@ -233,7 +252,7 @@ def run(net, optimizer, runner, log):
             log.write(f"{iteration},,,0,{std:.4f},{loss:.4f},{score_csv}\n")
         log.flush()
         if (iteration + 1) % 20 == 0:
-            torch.save(net.state_dict(), "policy.pt")
+            torch.save(net.state_dict(), out)
 
 
 if __name__ == "__main__":

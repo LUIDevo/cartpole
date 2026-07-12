@@ -35,14 +35,24 @@ def main():
     ap.add_argument("--stochastic", action="store_true")
     args = ap.parse_args()
 
-    net = Network()
-    try:
-        net.load_state_dict(torch.load(args.policy, weights_only=True))
-        net.eval()
-        policy_name = args.policy
-    except (FileNotFoundError, RuntimeError) as e:
-        net = None
-        policy_name = f"none ({e.__class__.__name__}: train first)"
+    def load_net(path):
+        n = Network()
+        try:
+            n.load_state_dict(torch.load(path, weights_only=True))
+            n.eval()
+            return n
+        except (FileNotFoundError, RuntimeError):
+            return None
+
+    # specialist per goal; down-down needs no policy (motor off)
+    specialists = {(1.0, 1.0): load_net("policy_uu.pt"),
+                   (1.0, -1.0): load_net("policy_ud.pt"),
+                   (-1.0, 1.0): load_net("policy_du.pt"),
+                   (-1.0, -1.0): None}
+    fallback = load_net(args.policy)
+    loaded = [n for n in specialists.values() if n is not None]
+    policy_name = (f"specialists ({len(loaded)}/3 loaded, dd = motor off)"
+                   if loaded else (args.policy if fallback else "none — train first"))
 
     env = MathCartPoleVec(1, goal_switching=False)
     obs = env.reset_all()
@@ -87,6 +97,10 @@ def main():
         root.bind(f"<KeyPress-{key}>", lambda e, a=a, b=b: set_goal(a, b))
 
     def tick():
+        goal = state["goal"]
+        net = specialists.get(goal)
+        if net is None and goal != (-1.0, -1.0):
+            net = fallback
         if net is not None:
             with torch.no_grad():
                 s = torch.from_numpy(state["obs"])

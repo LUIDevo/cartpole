@@ -26,8 +26,8 @@ public partial class Cart : CharacterBody2D
 	{
 		CartMass      = Rand(3.0f, 8.0f);
 		PoleMass      = Rand(1.0f, 4.0f);
-		MaxMotorForce = Rand(8000f, 16000f);
-		MaxMotorPower = Rand(4000f, 7000f);
+		MaxMotorForce = Rand(16000f, 32000f);
+		MaxMotorPower = Rand(5000f, 9000f);
 
 		_motorDeadzone = Rand(0.0f, 0.05f);
 		_motorExponent = Rand(0.9f, 1.2f);
