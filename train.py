@@ -1,3 +1,4 @@
+import math
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -59,9 +60,12 @@ class Network(nn.Module):
 
     @torch.no_grad()
     def act_batch(self, states):
-        d = self.dist(states)
-        actions = d.sample()
-        return actions.clamp(-1.0, 1.0), actions, d.log_prob(actions)
+        mean = self(states)
+        std = self.log_std.exp()
+        actions = mean + std * torch.randn_like(mean)
+        log_probs = (-0.5 * ((actions - mean) / std) ** 2
+                     - self.log_std - 0.5 * math.log(2 * math.pi))
+        return actions.clamp(-1.0, 1.0), actions, log_probs
 
 
 class VecRunner:
