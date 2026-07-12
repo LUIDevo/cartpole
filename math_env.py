@@ -23,6 +23,8 @@ W_ANGVEL = 0.003
 W_POS = 0.1
 W_EDGE = 10.0
 UP_BONUS = 0.25
+ALIVE_BONUS = 1.0
+DEATH_PENALTY = 10.0
 
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
@@ -161,7 +163,9 @@ class MathCartPoleVec:
                 self.switch_in[expired] = self.rng.integers(
                     GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=k)
 
-        return self.observe(), self.reward(), self.terminal()
+        done = self.terminal()
+        rew = self.reward() - DEATH_PENALTY * done
+        return self.observe(), rew, done
 
     def observe(self):
         wrap1 = np.arctan2(np.sin(self.theta1), np.cos(self.theta1))
@@ -183,7 +187,8 @@ class MathCartPoleVec:
         edge = np.maximum(0.0, np.abs(pos_n) - 0.8)
         bonus = (UP_BONUS * ((self.g1 > 0) & (c1 > 0.9))
                  + UP_BONUS * ((self.g2 > 0) & (c2 > 0.9)))
-        return (0.5 * (self.g1 * c1 + self.g2 * c2)
+        return (ALIVE_BONUS
+                + 0.5 * (self.g1 * c1 + self.g2 * c2)
                 + bonus
                 - W_ANGVEL * (self.omega1**2 + self.omega2**2)
                 - W_POS * pos_n**2

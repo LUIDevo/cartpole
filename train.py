@@ -184,6 +184,16 @@ def main():
     runner = VecRunner(MathCartPoleVec(NUM_ENVS))
     log = open("training_log.csv", "w")
     log.write("iter,avg_reward,avg_len,episodes,std,loss\n")
+    try:
+        run(net, optimizer, runner, log)
+    except KeyboardInterrupt:
+        print("\ninterrupted — saving policy.pt")
+    log.close()
+    torch.save(net.state_dict(), "policy.pt")
+    print("saved policy.pt")
+
+
+def run(net, optimizer, runner, log):
     for iteration in range(ITERATIONS):
         frac = max(0.1, 1.0 - iteration / ITERATIONS)
         for group in optimizer.param_groups:
@@ -208,10 +218,6 @@ def main():
         log.flush()
         if (iteration + 1) % 20 == 0:
             torch.save(net.state_dict(), "policy.pt")
-
-    log.close()
-    torch.save(net.state_dict(), "policy.pt")
-    print("saved policy.pt")
 
 
 if __name__ == "__main__":
