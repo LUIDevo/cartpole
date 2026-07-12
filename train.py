@@ -182,6 +182,8 @@ def main():
     net = Network()
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
     runner = VecRunner(MathCartPoleVec(NUM_ENVS))
+    log = open("training_log.csv", "w")
+    log.write("iter,avg_reward,avg_len,episodes,std,loss\n")
     for iteration in range(ITERATIONS):
         frac = 1.0 - iteration / ITERATIONS
         for group in optimizer.param_groups:
@@ -197,9 +199,17 @@ def main():
             stats = "avg_reward      n/a  avg_len    n/a  eps   0"
         print(f"iter {iteration:3d}  {stats}  std {std:5.3f}  loss {loss:8.4f}",
               flush=True)
+        if ep_lens:
+            log.write(f"{iteration},{sum(ep_rewards)/len(ep_rewards):.4f},"
+                      f"{sum(ep_lens)/len(ep_lens):.2f},{len(ep_lens)},"
+                      f"{std:.4f},{loss:.4f}\n")
+        else:
+            log.write(f"{iteration},,,0,{std:.4f},{loss:.4f}\n")
+        log.flush()
         if (iteration + 1) % 20 == 0:
             torch.save(net.state_dict(), "policy.pt")
 
+    log.close()
     torch.save(net.state_dict(), "policy.pt")
     print("saved policy.pt")
 
