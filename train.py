@@ -137,7 +137,21 @@ class VecRunner:
 
         data = (states.reshape(-1, STATE_DIM), actions.reshape(-1), old_lps.reshape(-1),
                 advantages.reshape(-1), returns.reshape(-1))
-        return data, ep_rewards, ep_lens
+        return data, ep_rewards, ep_lens, goal_scores(states)
+
+
+GOAL_NAMES = ("uu", "ud", "du", "dd")
+
+
+def goal_scores(states):
+    g1, g2 = states[..., 6], states[..., 7]
+    c1 = torch.cos(states[..., 2] * math.pi)
+    c2 = torch.cos(states[..., 5] * math.pi)
+    score = 0.5 * (g1 * c1 + g2 * c2)
+    masks = {"uu": (g1 > 0) & (g2 > 0), "ud": (g1 > 0) & (g2 < 0),
+             "du": (g1 < 0) & (g2 > 0), "dd": (g1 < 0) & (g2 < 0)}
+    return {k: float(score[m].mean()) if m.any() else float("nan")
+            for k, m in masks.items()}
 
 
 def update(net, optimizer, states, actions, old_lps, advantages, returns):
@@ -183,7 +197,8 @@ def main():
     optimizer = torch.optim.Adam(net.parameters(), lr=LR)
     runner = VecRunner(MathCartPoleVec(NUM_ENVS))
     log = open("training_log.csv", "w")
-    log.write("iter,avg_reward,avg_len,episodes,std,loss\n")
+    log.write("iter,avg_reward,avg_len,episodes,std,loss,"
+              "score_uu,score_ud,score_du,score_dd\n")
     try:
         run(net, optimizer, runner, log)
     except KeyboardInterrupt:
@@ -198,23 +213,24 @@ def run(net, optimizer, runner, log):
         frac = max(0.1, 1.0 - iteration / ITERATIONS)
         for group in optimizer.param_groups:
             group["lr"] = LR * frac
-        data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)
+        data, ep_rewards, ep_lens, scores = runner.collect(net, STEPS_PER_ITER)
         loss = update(net, optimizer, *data)
         std = float(net.log_std.detach().exp())
+        score_str = "  ".join(f"{k} {scores[k]:+.2f}" for k in GOAL_NAMES)
         if ep_lens:
             stats = (f"avg_reward {sum(ep_rewards)/len(ep_rewards):8.2f}  "
-                     f"avg_len {sum(ep_lens)/len(ep_lens):6.1f}  "
                      f"eps {len(ep_lens):3d}")
         else:
-            stats = "avg_reward      n/a  avg_len    n/a  eps   0"
-        print(f"iter {iteration:3d}  {stats}  std {std:5.3f}  loss {loss:8.4f}",
-              flush=True)
+            stats = "avg_reward      n/a  eps   0"
+        print(f"iter {iteration:3d}  {stats}  {score_str}  std {std:5.3f}  "
+              f"loss {loss:8.4f}", flush=True)
+        score_csv = ",".join(f"{scores[k]:.4f}" for k in GOAL_NAMES)
         if ep_lens:
             log.write(f"{iteration},{sum(ep_rewards)/len(ep_rewards):.4f},"
                       f"{sum(ep_lens)/len(ep_lens):.2f},{len(ep_lens)},"
-                      f"{std:.4f},{loss:.4f}\n")
+                      f"{std:.4f},{loss:.4f},{score_csv}\n")
         else:
-            log.write(f"{iteration},,,0,{std:.4f},{loss:.4f}\n")
+            log.write(f"{iteration},,,0,{std:.4f},{loss:.4f},{score_csv}\n")
         log.flush()
         if (iteration + 1) % 20 == 0:
             torch.save(net.state_dict(), "policy.pt")

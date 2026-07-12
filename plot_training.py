@@ -21,6 +21,11 @@ GRID = "#31353f"
 BLUE = "#6fb1ec"
 AMBER = "#e3a94f"
 
+GOAL_SERIES = (("score_uu", "#6fb1ec", "up-up"),
+               ("score_ud", "#e3a94f", "up-down"),
+               ("score_du", "#62d6c3", "down-up"),
+               ("score_dd", "#b58ee6", "down-down"))
+
 
 def style():
     sns.set_theme(style="darkgrid", rc={
@@ -41,20 +46,43 @@ def style():
 
 def draw(fig, axes, df):
     window = max(1, len(df) // 25)
-    for ax, col, color, title in (
-        (axes[0], "avg_reward", BLUE, "Average episode reward"),
-        (axes[1], "avg_len", AMBER, "Average episode length (ticks)"),
-    ):
-        ax.clear()
-        series = df[col].dropna()
-        ax.plot(series.index, series, color=color, alpha=0.3,
-                linewidth=1.0, label="per iteration")
-        smoothed = series.rolling(window, min_periods=1).mean()
-        ax.plot(series.index, smoothed, color=color, linewidth=2.0,
+
+    ax = axes[0]
+    ax.clear()
+    series = df["avg_reward"].dropna()
+    ax.plot(series.index, series, color=BLUE, alpha=0.3,
+            linewidth=1.0, label="per iteration")
+    smoothed = series.rolling(window, min_periods=1).mean()
+    ax.plot(series.index, smoothed, color=BLUE, linewidth=2.0,
+            label=f"rolling mean ({window})")
+    ax.set_title("Average episode reward", loc="left", fontsize=11)
+    ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
+    ax.margins(x=0.01)
+
+    ax = axes[1]
+    ax.clear()
+    if "score_uu" in df.columns:
+        for col, color, label in GOAL_SERIES:
+            s = df[col].dropna()
+            sm = s.rolling(window, min_periods=1).mean()
+            ax.plot(s.index, s, color=color, alpha=0.18, linewidth=0.8)
+            ax.plot(s.index, sm, color=color, linewidth=2.0, label=label)
+        ax.axhline(1.0, color=GRID, linewidth=1.0, linestyle="--")
+        ax.set_ylim(-1.05, 1.1)
+        ax.set_title("Goal satisfaction by commanded goal "
+                     "(mean ½(g·cosθ), 1.0 = both poles on goal)",
+                     loc="left", fontsize=11)
+        ax.legend(loc="lower right", fontsize=8, framealpha=0.9, ncols=2)
+    else:
+        s = df["avg_len"].dropna()
+        sm = s.rolling(window, min_periods=1).mean()
+        ax.plot(s.index, s, color=AMBER, alpha=0.3, linewidth=1.0,
+                label="per iteration")
+        ax.plot(s.index, sm, color=AMBER, linewidth=2.0,
                 label=f"rolling mean ({window})")
-        ax.set_title(title, loc="left", fontsize=11)
+        ax.set_title("Average episode length (ticks)", loc="left", fontsize=11)
         ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
-        ax.margins(x=0.01)
+    ax.margins(x=0.01)
     axes[1].set_xlabel("iteration")
     n = int(df["iter"].iloc[-1]) + 1 if len(df) else 0
     fig.suptitle(f"cart-pole training — {n} iterations", x=0.01, ha="left",
