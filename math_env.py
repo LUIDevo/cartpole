@@ -7,7 +7,6 @@ HALF_TRACK = 500.0
 MAX_CART_VEL = 1000.0
 MAX_POLE_ANGVEL = 10.0
 MAX_POLE_ANGLE = np.pi
-FAIL_ANGLE = np.pi / 2.0
 
 POLE_LEN = 200.0
 POLE_WIDTH = 20.0
@@ -15,18 +14,28 @@ R_COM = POLE_LEN / 2.0
 I_COM_PER_M = (POLE_WIDTH**2 + POLE_LEN**2) / 12.0
 ANGULAR_DAMP = 1.0
 
-STATE_DIM = 6
+STATE_DIM = 8
+
+GOAL_SWITCH_MIN_TICKS = 180
+GOAL_SWITCH_MAX_TICKS = 600
+
+W_ANGVEL = 0.01
+W_POS = 0.25
 
 
 class MathCartPoleVec:
-    def __init__(self, n, seed=None):
+    def __init__(self, n, seed=None, goal_switching=True):
         self.n = n
         self.rng = np.random.default_rng(seed)
+        self.goal_switching = goal_switching
 
         z = lambda: np.zeros(n)
         self.x, self.v = z(), z()
         self.theta1, self.omega1 = z(), z()
         self.theta2, self.omega2 = z(), z()
+        self.g1 = np.ones(n)
+        self.g2 = np.ones(n)
+        self.switch_in = np.zeros(n, dtype=np.int64)
         self.cart_mass = z()
         self.pole_mass_belief = z()
         self.m1 = z()
@@ -38,6 +47,9 @@ class MathCartPoleVec:
         self.bias = z()
 
         self._randomize(np.arange(n))
+
+    def _rand_goals(self, k):
+        return self.rng.choice([-1.0, 1.0], size=k)
 
     def _randomize(self, idx):
         u = lambda lo, hi: self.rng.uniform(lo, hi, size=np.shape(idx))
@@ -51,12 +63,18 @@ class MathCartPoleVec:
         self.exponent[idx] = u(0.9, 1.2)
         self.bias[idx] = u(-0.03, 0.03)
 
-        self.x[idx] = 0.0
+        self.x[idx] = u(-250.0, 250.0)
         self.v[idx] = u(-60.0, 60.0)
-        self.theta1[idx] = u(-0.25, 0.25)
-        self.omega1[idx] = u(-1.0, 1.0)
-        self.theta2[idx] = u(-0.25, 0.25)
-        self.omega2[idx] = u(-1.0, 1.0)
+        self.theta1[idx] = u(-np.pi, np.pi)
+        self.omega1[idx] = u(-2.0, 2.0)
+        self.theta2[idx] = u(-np.pi, np.pi)
+        self.omega2[idx] = u(-2.0, 2.0)
+
+        k = np.size(idx)
+        self.g1[idx] = self._rand_goals(k)
+        self.g2[idx] = self._rand_goals(k)
+        self.switch_in[idx] = self.rng.integers(
+            GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=np.shape(idx))
 
     def reset_all(self):
         self._randomize(np.arange(self.n))
@@ -69,6 +87,10 @@ class MathCartPoleVec:
     def reset_where(self, mask):
         self._randomize(np.flatnonzero(mask))
         return self.observe()
+
+    def set_goal(self, i, g1, g2):
+        self.g1[i] = g1
+        self.g2[i] = g2
 
     def _motor_force(self, u):
         u = np.clip(u + self.bias, -1.0, 1.0)
@@ -95,8 +117,6 @@ class MathCartPoleVec:
         a_pivot = (v - v_old) / DT
 
         # Double pendulum on a pivot with prescribed acceleration (Lagrange).
-        # theta measured from upright, positive tips toward +x; the kinematic
-        # cart takes no back-reaction, but the rods couple to each other.
         m1, m2 = self.m1, self.m2
         L, r = POLE_LEN, R_COM
         s1, c1 = np.sin(self.theta1), np.cos(self.theta1)
@@ -126,6 +146,17 @@ class MathCartPoleVec:
         self.x, self.v = x, v
         self.theta1, self.omega1 = theta1, omega1
         self.theta2, self.omega2 = theta2, omega2
+
+        if self.goal_switching:
+            self.switch_in -= 1
+            expired = self.switch_in <= 0
+            if expired.any():
+                k = int(expired.sum())
+                self.g1[expired] = self._rand_goals(k)
+                self.g2[expired] = self._rand_goals(k)
+                self.switch_in[expired] = self.rng.integers(
+                    GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=k)
+
         return self.observe(), self.reward(), self.terminal()
 
     def observe(self):
@@ -138,15 +169,15 @@ class MathCartPoleVec:
             self.x / HALF_TRACK,
             self.omega2 / MAX_POLE_ANGVEL,
             wrap2 / MAX_POLE_ANGLE,
+            self.g1,
+            self.g2,
         ], axis=1).astype(np.float32)
 
     def reward(self):
         pos_n = self.x / HALF_TRACK
-        return 1.0 - (self.theta1**2 + self.theta2**2
-                      + 0.1 * (self.omega1**2 + self.omega2**2)
-                      + 0.5 * pos_n**2)
+        return (0.5 * (self.g1 * np.cos(self.theta1) + self.g2 * np.cos(self.theta2))
+                - W_ANGVEL * (self.omega1**2 + self.omega2**2)
+                - W_POS * pos_n**2)
 
     def terminal(self):
-        return ((np.abs(self.theta1) > FAIL_ANGLE)
-                | (np.abs(self.theta2) > FAIL_ANGLE)
-                | (np.abs(self.x) >= HALF_TRACK))
+        return np.abs(self.x) >= HALF_TRACK

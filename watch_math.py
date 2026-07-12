@@ -2,7 +2,8 @@
 """Visualise the math simulation directly (no Godot).
 
 Policy drives the cart; hold Left/Right arrows to shove it and release
-to let the policy recover. R resets the episode, Escape quits.
+to let the policy recover. Keys 1-4 command the goal (up-up, up-down,
+down-up, down-down). R resets the episode, Escape quits.
 """
 import argparse
 import os
@@ -43,8 +44,9 @@ def main():
         net = None
         policy_name = f"none ({e.__class__.__name__}: train first)"
 
-    env = MathCartPoleVec(1)
+    env = MathCartPoleVec(1, goal_switching=False)
     obs = env.reset_all()
+    env.set_goal(0, 1.0, 1.0)
 
     root = tk.Tk()
     root.title("cart-pole math sim")
@@ -68,6 +70,14 @@ def main():
         state["episode"] += 1
 
     root.bind("<KeyPress-r>", do_reset)
+
+    goals = {"1": (1.0, 1.0), "2": (1.0, -1.0), "3": (-1.0, 1.0), "4": (-1.0, -1.0)}
+    goal_names = {(1.0, 1.0): "UP-UP", (1.0, -1.0): "UP-DOWN",
+                  (-1.0, 1.0): "DOWN-UP", (-1.0, -1.0): "DOWN-DOWN"}
+    for key, (a, b) in goals.items():
+        root.bind(f"<KeyPress-{key}>",
+                  lambda e, a=a, b=b: (env.set_goal(0, a, b),
+                                       state.__setitem__("obs", env.observe())))
 
     def tick():
         if net is not None:
@@ -122,15 +132,17 @@ def main():
             px, py = qx, qy
 
         manual = "L" in held or "R" in held
+        goal = goal_names.get((float(env.g1[0]), float(env.g2[0])), "?")
         hud = (f"episode {state['episode']}   step {state['steps']:4d}   "
-               f"reward {state['reward']:8.1f}   cmd {cmd:+.2f}"
+               f"reward {state['reward']:8.1f}   cmd {cmd:+.2f}   "
+               f"goal {goal}"
                + ("   [MANUAL]" if manual else ""))
         canvas.create_text(14, 16, anchor="w", fill="#d8d8de",
                            font=("monospace", 12), text=hud)
         canvas.create_text(14, 38, anchor="w", fill="#6f6f7a",
                            font=("monospace", 10),
-                           text=f"policy: {policy_name}   "
-                                "keys: Left/Right shove, R reset, Esc quit")
+                           text=f"policy: {policy_name}   keys: Left/Right shove, "
+                                "1-4 goal (upup/updown/downup/downdown), R reset, Esc quit")
 
     tick()
     root.mainloop()

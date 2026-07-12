@@ -13,10 +13,10 @@ torch.set_num_threads(4)
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 LR = 3e-4
-ITERATIONS = 500
-NUM_ENVS = 24
+ITERATIONS = 1000
+NUM_ENVS = 64
 STEPS_PER_ITER = 1024 * NUM_ENVS
-MAX_STEPS = 1000
+MAX_STEPS = 3000
 
 EPOCHS = 10
 MINIBATCHES = 4
@@ -33,18 +33,18 @@ class Network(nn.Module):
     def __init__(self):
         super().__init__()
         self.actor = nn.Sequential(
-            nn.Linear(STATE_DIM, 64),
+            nn.Linear(STATE_DIM, 128),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.Tanh(),
-            nn.Linear(64, 1),
+            nn.Linear(128, 1),
         )
         self.critic = nn.Sequential(
-            nn.Linear(STATE_DIM, 64),
+            nn.Linear(STATE_DIM, 128),
             nn.Tanh(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.Tanh(),
-            nn.Linear(64, 1),
+            nn.Linear(128, 1),
         )
         self.log_std = nn.Parameter(torch.full((1,), float(torch.log(torch.tensor(INIT_STD)))))
 
