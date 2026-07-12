@@ -19,8 +19,13 @@ STATE_DIM = 8
 GOAL_SWITCH_MIN_TICKS = 180
 GOAL_SWITCH_MAX_TICKS = 600
 
-W_ANGVEL = 0.01
-W_POS = 0.25
+W_ANGVEL = 0.003
+W_POS = 0.1
+W_EDGE = 10.0
+UP_BONUS = 0.25
+
+GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
+GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
 
 
 class MathCartPoleVec:
@@ -48,8 +53,9 @@ class MathCartPoleVec:
 
         self._randomize(np.arange(n))
 
-    def _rand_goals(self, k):
-        return self.rng.choice([-1.0, 1.0], size=k)
+    def _rand_goal_pairs(self, k):
+        pick = self.rng.choice(len(GOAL_PAIRS), size=k, p=GOAL_WEIGHTS)
+        return GOAL_PAIRS[pick, 0], GOAL_PAIRS[pick, 1]
 
     def _randomize(self, idx):
         u = lambda lo, hi: self.rng.uniform(lo, hi, size=np.shape(idx))
@@ -71,8 +77,7 @@ class MathCartPoleVec:
         self.omega2[idx] = u(-2.0, 2.0)
 
         k = np.size(idx)
-        self.g1[idx] = self._rand_goals(k)
-        self.g2[idx] = self._rand_goals(k)
+        self.g1[idx], self.g2[idx] = self._rand_goal_pairs(k)
         self.switch_in[idx] = self.rng.integers(
             GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=np.shape(idx))
 
@@ -152,8 +157,7 @@ class MathCartPoleVec:
             expired = self.switch_in <= 0
             if expired.any():
                 k = int(expired.sum())
-                self.g1[expired] = self._rand_goals(k)
-                self.g2[expired] = self._rand_goals(k)
+                self.g1[expired], self.g2[expired] = self._rand_goal_pairs(k)
                 self.switch_in[expired] = self.rng.integers(
                     GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=k)
 
@@ -175,9 +179,15 @@ class MathCartPoleVec:
 
     def reward(self):
         pos_n = self.x / HALF_TRACK
-        return (0.5 * (self.g1 * np.cos(self.theta1) + self.g2 * np.cos(self.theta2))
+        c1, c2 = np.cos(self.theta1), np.cos(self.theta2)
+        edge = np.maximum(0.0, np.abs(pos_n) - 0.8)
+        bonus = (UP_BONUS * ((self.g1 > 0) & (c1 > 0.9))
+                 + UP_BONUS * ((self.g2 > 0) & (c2 > 0.9)))
+        return (0.5 * (self.g1 * c1 + self.g2 * c2)
+                + bonus
                 - W_ANGVEL * (self.omega1**2 + self.omega2**2)
-                - W_POS * pos_n**2)
+                - W_POS * pos_n**2
+                - W_EDGE * edge**2)
 
     def terminal(self):
         return np.abs(self.x) >= HALF_TRACK

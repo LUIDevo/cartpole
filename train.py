@@ -14,7 +14,7 @@ torch.set_num_threads(4)
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 LR = 3e-4
-ITERATIONS = 1000
+ITERATIONS = 3000
 NUM_ENVS = 64
 STEPS_PER_ITER = 1024 * NUM_ENVS
 MAX_STEPS = 3000
@@ -185,7 +185,7 @@ def main():
     log = open("training_log.csv", "w")
     log.write("iter,avg_reward,avg_len,episodes,std,loss\n")
     for iteration in range(ITERATIONS):
-        frac = 1.0 - iteration / ITERATIONS
+        frac = max(0.1, 1.0 - iteration / ITERATIONS)
         for group in optimizer.param_groups:
             group["lr"] = LR * frac
         data, ep_rewards, ep_lens = runner.collect(net, STEPS_PER_ITER)

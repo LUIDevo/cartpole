@@ -61,10 +61,13 @@ def main():
     root.bind("<KeyRelease-Right>", lambda e: held.discard("R"))
     root.bind("<Escape>", lambda e: root.destroy())
 
-    state = {"obs": obs, "steps": 0, "reward": 0.0, "episode": 1}
+    state = {"obs": obs, "steps": 0, "reward": 0.0, "episode": 1,
+             "goal": (1.0, 1.0)}
 
     def do_reset(_event=None):
-        state["obs"] = env.reset_all()
+        env.reset_all()
+        env.set_goal(0, *state["goal"])
+        state["obs"] = env.observe()
         state["steps"] = 0
         state["reward"] = 0.0
         state["episode"] += 1
@@ -74,10 +77,14 @@ def main():
     goals = {"1": (1.0, 1.0), "2": (1.0, -1.0), "3": (-1.0, 1.0), "4": (-1.0, -1.0)}
     goal_names = {(1.0, 1.0): "UP-UP", (1.0, -1.0): "UP-DOWN",
                   (-1.0, 1.0): "DOWN-UP", (-1.0, -1.0): "DOWN-DOWN"}
+
+    def set_goal(a, b):
+        state["goal"] = (a, b)
+        env.set_goal(0, a, b)
+        state["obs"] = env.observe()
+
     for key, (a, b) in goals.items():
-        root.bind(f"<KeyPress-{key}>",
-                  lambda e, a=a, b=b: (env.set_goal(0, a, b),
-                                       state.__setitem__("obs", env.observe())))
+        root.bind(f"<KeyPress-{key}>", lambda e, a=a, b=b: set_goal(a, b))
 
     def tick():
         if net is not None:
