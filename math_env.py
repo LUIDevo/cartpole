@@ -1,7 +1,7 @@
 import numpy as np
 
 DT = 1.0 / 60.0
-GRAVITY = 980.0
+GRAVITY = 2000.0
 
 HALF_TRACK = 500.0
 MAX_CART_VEL = 1000.0
@@ -12,7 +12,7 @@ POLE_LEN = 200.0
 POLE_WIDTH = 20.0
 R_COM = POLE_LEN / 2.0
 I_COM_PER_M = (POLE_WIDTH**2 + POLE_LEN**2) / 12.0
-ANGULAR_DAMP = 1.0
+ANGULAR_DAMP = 0.15
 
 STATE_DIM = 8
 
@@ -84,14 +84,14 @@ class MathCartPoleVec:
         self.exponent[idx] = u(0.9, 1.2)
         self.bias[idx] = u(-0.03, 0.03)
 
+        k = np.size(idx)
         self.x[idx] = u(-250.0, 250.0)
         self.v[idx] = u(-60.0, 60.0)
-        self.theta1[idx] = u(-np.pi, np.pi)
+        self.theta1[idx] = self._rand_angles(k)
         self.omega1[idx] = u(-2.0, 2.0)
-        self.theta2[idx] = u(-np.pi, np.pi)
+        self.theta2[idx] = self._rand_angles(k)
         self.omega2[idx] = u(-2.0, 2.0)
 
-        k = np.size(idx)
         self.g1[idx], self.g2[idx] = self._rand_goal_pairs(k)
         self.switch_in[idx] = self.rng.integers(
             GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=np.shape(idx))
@@ -172,7 +172,15 @@ class MathCartPoleVec:
             expired = self.switch_in <= 0
             if expired.any():
                 k = int(expired.sum())
-                self.g1[expired], self.g2[expired] = self._rand_goal_pairs(k)
+                g1n, g2n = self._rand_goal_pairs(k)
+                # curriculum: sometimes the new goal confirms the current
+                # configuration, so "keep the pole where it is" (including
+                # upright) is well represented in the data
+                confirm = self.rng.random(k) < CONFIRM_FRAC
+                cur1 = np.where(np.cos(self.theta1[expired]) >= 0.0, 1.0, -1.0)
+                cur2 = np.where(np.cos(self.theta2[expired]) >= 0.0, 1.0, -1.0)
+                self.g1[expired] = np.where(confirm, cur1, g1n)
+                self.g2[expired] = np.where(confirm, cur2, g2n)
                 self.switch_in[expired] = self.rng.integers(
                     GOAL_SWITCH_MIN_TICKS, GOAL_SWITCH_MAX_TICKS, size=k)
 
@@ -200,9 +208,13 @@ class MathCartPoleVec:
         edge = np.maximum(0.0, np.abs(pos_n) - 0.8)
         bonus = (UP_BONUS * ((self.g1 > 0) & (c1 > 0.9))
                  + UP_BONUS * ((self.g2 > 0) & (c2 > 0.9)))
+        swing = (W_SWING * ((self.g1 > 0) & (c1 < 0.0))
+                 * np.minimum(np.abs(self.omega1), OMEGA_SWING)
+                 + W_SWING * ((self.g2 > 0) & (c2 < 0.0))
+                 * np.minimum(np.abs(self.omega2), OMEGA_SWING))
         return (ALIVE_BONUS
                 + 0.5 * (self.g1 * c1 + self.g2 * c2)
-                + bonus
+                + bonus + swing
                 - W_ANGVEL * (self.omega1**2 + self.omega2**2)
                 - W_POS * pos_n**2
                 - W_EDGE * edge**2)

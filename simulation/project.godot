@@ -21,6 +21,8 @@ project/assembly_name="simulation"
 
 [physics]
 
+2d/default_gravity=2000.0
+2d/default_angular_damp=0.15
 3d/physics_engine="Jolt Physics"
 
 [rendering]
