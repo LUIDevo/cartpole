@@ -226,6 +226,14 @@ def main():
     torch.save(net.state_dict(), out)
     print(f"saved {out}")
 
+    if args.goal == "uu" and out == "policy_uu.pt":
+        for other in ("ud", "du"):
+            path = f"policy_{other}.pt"
+            if not os.path.exists(path):
+                torch.save(net.state_dict(), path)
+                print(f"seeded {path} from uu weights "
+                      f"(fine-tune with: py train.py --goal {other} --init {path})")
+
 
 def run(net, optimizer, runner, log, iters, out):
     for iteration in range(iters):
