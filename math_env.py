@@ -23,19 +23,23 @@ STATE_DIM = 8
 GOAL_SWITCH_MIN_TICKS = 180
 GOAL_SWITCH_MAX_TICKS = 600
 
-W_ANGVEL = 0.003
+W_ANGVEL = 0.001
 W_POS = 0.1
 W_EDGE = 10.0
 UP_BONUS = 0.25
 ALIVE_BONUS = 1.0
 DEATH_PENALTY = 10.0
 
-# swing-up shaping: pay for rotational speed while an up-goal pole hangs
-# below horizontal, capped at the speed sufficient to coast to upright
-W_SWING = 0.07
-OMEGA_SWING = np.sqrt(4.0 * GRAVITY * R_COM / (I_COM_PER_M + R_COM**2))
+# swing-up shaping: pay for holding the true system mechanical energy
+# (cart-frame, full double-pendulum mass matrix) near the rest energy of
+# the goal configuration. Full bonus at E = E_goal (which includes
+# standing at the goal), fading linearly over one full energy range.
+W_ENERGY = 0.3
+# joint bonus: catching *both* poles upright pays distinctly more than
+# holding one up, so the up-up catch is worth hunting for
+UPUP_BONUS = 0.5
 
-NEAR_UP_FRAC = 0.35
+NEAR_UP_FRAC = 0.5
 CONFIRM_FRAC = 0.3
 
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
@@ -222,11 +226,22 @@ class MathCartPoleVec:
         c1, c2 = np.cos(self.theta1), np.cos(self.theta2)
         edge = np.maximum(0.0, np.abs(pos_n) - 0.8)
         bonus = (UP_BONUS * ((self.g1 > 0) & (c1 > 0.9))
-                 + UP_BONUS * ((self.g2 > 0) & (c2 > 0.9)))
-        swing = (W_SWING * ((self.g1 > 0) & (c1 < 0.0))
-                 * np.minimum(np.abs(self.omega1), OMEGA_SWING)
-                 + W_SWING * ((self.g2 > 0) & (c2 < 0.0))
-                 * np.minimum(np.abs(self.omega2), OMEGA_SWING))
+                 + UP_BONUS * ((self.g2 > 0) & (c2 > 0.9))
+                 + UPUP_BONUS * ((self.g1 > 0) & (self.g2 > 0)
+                                 & (c1 > 0.9) & (c2 > 0.9)))
+        m1, m2 = self.m1, self.m2
+        L, r = POLE_LEN, R_COM
+        m11 = I_COM_PER_M * m1 + m1 * r * r + m2 * L * L
+        m22 = I_COM_PER_M * m2 + m2 * r * r
+        m12 = m2 * L * r * np.cos(self.theta1 - self.theta2)
+        ke = 0.5 * (m11 * self.omega1**2
+                    + 2.0 * m12 * self.omega1 * self.omega2
+                    + m22 * self.omega2**2)
+        pe = GRAVITY * (m1 * r * c1 + m2 * (L * c1 + r * c2))
+        e_up = GRAVITY * (m1 * r + m2 * (L + r))
+        e_goal = GRAVITY * (m1 * r * self.g1 + m2 * (L * self.g1 + r * self.g2))
+        swing = W_ENERGY * np.maximum(
+            0.0, 1.0 - np.abs(ke + pe - e_goal) / (2.0 * e_up))
         return (ALIVE_BONUS
                 + 0.5 * (self.g1 * c1 + self.g2 * c2)
                 + bonus + swing
