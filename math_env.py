@@ -41,6 +41,13 @@ UPUP_BONUS = 0.5
 
 NEAR_UP_FRAC = 0.5
 CONFIRM_FRAC = 0.3
+# fraction of resets that start inside the up-up capture basin (both
+# links near upright, low spin): the wide distribution almost never
+# produces recoverable upright states, so without this the balance
+# skill is starved of training data
+BALANCE_FRAC = 0.25
+BALANCE_ANGLE_STD = 0.08
+BALANCE_OMEGA_STD = 0.3
 
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
@@ -96,10 +103,15 @@ class MathCartPoleVec:
         k = np.size(idx)
         self.x[idx] = u(-250.0, 250.0)
         self.v[idx] = u(-60.0, 60.0)
-        self.theta1[idx] = self._rand_angles(k)
-        self.omega1[idx] = u(-2.0, 2.0)
-        self.theta2[idx] = self._rand_angles(k)
-        self.omega2[idx] = u(-2.0, 2.0)
+        bal = self.rng.random(k) < BALANCE_FRAC
+        th = lambda: np.where(bal, self.rng.normal(0.0, BALANCE_ANGLE_STD, k),
+                              self._rand_angles(k))
+        om = lambda: np.where(bal, self.rng.normal(0.0, BALANCE_OMEGA_STD, k),
+                              self.rng.uniform(-2.0, 2.0, k))
+        self.theta1[idx] = th()
+        self.omega1[idx] = om()
+        self.theta2[idx] = th()
+        self.omega2[idx] = om()
 
         if self.fixed_goal is not None:
             self.g1[idx], self.g2[idx] = self.fixed_goal
