@@ -32,7 +32,7 @@ MAX_STD = 0.6
 
 
 class Network(nn.Module):
-    def __init__(self):
+    def __init__(self, init_std=INIT_STD):
         super().__init__()
         self.actor = nn.Sequential(
             nn.Linear(STATE_DIM, 128),
@@ -48,7 +48,7 @@ class Network(nn.Module):
             nn.Tanh(),
             nn.Linear(128, 1),
         )
-        self.log_std = nn.Parameter(torch.full((1,), float(torch.log(torch.tensor(INIT_STD)))))
+        self.log_std = nn.Parameter(torch.full((1,), float(np.log(init_std))))
 
     def forward(self, state):
         return torch.tanh(self.actor(state)).squeeze(-1)
@@ -70,8 +70,9 @@ class Network(nn.Module):
 
 
 class VecRunner:
-    def __init__(self, env):
+    def __init__(self, env, max_steps=MAX_STEPS):
         self.env = env
+        self.max_steps = max_steps
         self.obs = torch.from_numpy(env.reset_all())
         self.ep_len = np.zeros(env.n, dtype=np.int64)
         self.ep_rew = np.zeros(env.n)
@@ -99,7 +100,7 @@ class VecRunner:
 
             self.ep_len += 1
             self.ep_rew += rew
-            trunc = ~done & (self.ep_len >= MAX_STEPS)
+            trunc = ~done & (self.ep_len >= self.max_steps)
             terminal[t] = torch.from_numpy(done)
             truncated[t] = torch.from_numpy(trunc)
 
@@ -155,7 +156,8 @@ def goal_scores(states):
             for k, m in masks.items()}
 
 
-def update(net, optimizer, states, actions, old_lps, advantages, returns):
+def update(net, optimizer, states, actions, old_lps, advantages, returns,
+           min_std=MIN_STD, max_std=MAX_STD):
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     batch = states.shape[0]
@@ -181,7 +183,7 @@ def update(net, optimizer, states, actions, old_lps, advantages, returns):
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             optimizer.step()
-            net.log_std.data.clamp_(np.log(MIN_STD), np.log(MAX_STD))
+            net.log_std.data.clamp_(np.log(min_std), np.log(max_std))
 
             with torch.no_grad():
                 approx_kl = (old_lps[mb] - new_lps).mean()
@@ -203,23 +205,42 @@ def main():
     ap.add_argument("--init", help="checkpoint to warm-start from")
     ap.add_argument("--out", help="output checkpoint path")
     ap.add_argument("--iters", type=int, default=ITERATIONS)
+    ap.add_argument("--lr", type=float, default=LR)
+    ap.add_argument("--log", help="training log csv path")
+    ap.add_argument("--balance-frac", type=float, default=None,
+                    help="fraction of resets inside the up-up capture basin")
+    ap.add_argument("--max-steps", type=int, default=MAX_STEPS,
+                    help="episode length before truncation")
+    ap.add_argument("--std-init", type=float, default=INIT_STD)
+    ap.add_argument("--std-min", type=float, default=MIN_STD)
+    ap.add_argument("--critic-warmup", type=int, default=0,
+                    help="critic-only iterations before PPO updates "
+                         "(use when warm-starting from a distilled policy "
+                         "whose critic is untrained)")
     args = ap.parse_args()
 
     out = args.out or (f"policy_{args.goal}.pt" if args.goal else "policy.pt")
     fixed = GOAL_VECS[args.goal] if args.goal else None
-    log_path = f"training_log_{args.goal}.csv" if args.goal else "training_log.csv"
+    log_path = args.log or (f"training_log_{args.goal}.csv" if args.goal
+                            else "training_log.csv")
 
-    net = Network()
+    net = Network(args.std_init)
     if args.init:
         net.load_state_dict(torch.load(args.init, weights_only=True))
+        net.log_std.data.fill_(float(np.log(args.std_init)))
         print(f"warm-started from {args.init}")
-    optimizer = torch.optim.Adam(net.parameters(), lr=LR)
-    runner = VecRunner(MathCartPoleVec(NUM_ENVS, fixed_goal=fixed))
+    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
+    env_kw = {} if args.balance_frac is None else \
+        {"balance_frac": args.balance_frac}
+    runner = VecRunner(MathCartPoleVec(NUM_ENVS, fixed_goal=fixed, **env_kw),
+                       max_steps=args.max_steps)
     log = open(log_path, "w")
     log.write("iter,avg_reward,avg_len,episodes,std,loss,"
               "score_uu,score_ud,score_du,score_dd\n")
     try:
-        run(net, optimizer, runner, log, args.iters, out)
+        run(net, optimizer, runner, log, args.iters, out,
+            lr=args.lr, std_min=args.std_min,
+            critic_warmup=args.critic_warmup)
     except KeyboardInterrupt:
         print(f"\ninterrupted — saving {out}")
     log.close()
@@ -235,13 +256,25 @@ def main():
                       f"(fine-tune with: py train.py --goal {other} --init {path})")
 
 
-def run(net, optimizer, runner, log, iters, out):
+def run(net, optimizer, runner, log, iters, out,
+        lr=LR, std_min=MIN_STD, critic_warmup=0):
+    if critic_warmup:
+        critic_opt = torch.optim.Adam(net.critic.parameters(), lr=1e-3)
+        for i in range(critic_warmup):
+            data, *_ = runner.collect(net, STEPS_PER_ITER)
+            states, _, _, _, returns = data
+            for _ in range(EPOCHS):
+                vloss = (net.value(states) - returns).pow(2).mean()
+                critic_opt.zero_grad()
+                vloss.backward()
+                critic_opt.step()
+            print(f"critic warmup {i}  vloss {vloss.item():8.2f}", flush=True)
     for iteration in range(iters):
         frac = max(0.1, 1.0 - iteration / iters)
         for group in optimizer.param_groups:
-            group["lr"] = LR * frac
+            group["lr"] = lr * frac
         data, ep_rewards, ep_lens, scores = runner.collect(net, STEPS_PER_ITER)
-        loss = update(net, optimizer, *data)
+        loss = update(net, optimizer, *data, min_std=std_min)
         std = float(net.log_std.detach().exp())
         score_str = "  ".join(f"{k} {scores[k]:+.2f}" for k in GOAL_NAMES)
         if ep_lens:

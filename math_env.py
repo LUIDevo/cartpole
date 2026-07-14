@@ -54,11 +54,13 @@ GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
 
 
 class MathCartPoleVec:
-    def __init__(self, n, seed=None, goal_switching=True, fixed_goal=None):
+    def __init__(self, n, seed=None, goal_switching=True, fixed_goal=None,
+                 balance_frac=BALANCE_FRAC):
         self.n = n
         self.rng = np.random.default_rng(seed)
         self.fixed_goal = fixed_goal
         self.goal_switching = goal_switching and fixed_goal is None
+        self.balance_frac = balance_frac
 
         z = lambda: np.zeros(n)
         self.x, self.v = z(), z()
@@ -103,7 +105,7 @@ class MathCartPoleVec:
         k = np.size(idx)
         self.x[idx] = u(-250.0, 250.0)
         self.v[idx] = u(-60.0, 60.0)
-        bal = self.rng.random(k) < BALANCE_FRAC
+        bal = self.rng.random(k) < self.balance_frac
         th = lambda: np.where(bal, self.rng.normal(0.0, BALANCE_ANGLE_STD, k),
                               self._rand_angles(k))
         om = lambda: np.where(bal, self.rng.normal(0.0, BALANCE_OMEGA_STD, k),
