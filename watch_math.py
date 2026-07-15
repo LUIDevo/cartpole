@@ -14,8 +14,12 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 import numpy as np
 import torch
 
-from math_env import MathCartPoleVec, HALF_TRACK, POLE_LEN
+from math_env import (MathCartPoleVec, HALF_TRACK, POLE_LEN,
+                      HANDOFF_COS, HANDOFF_OMEGA)
 from train import Network, MAX_STEPS
+
+# balance net hands back to the swing net only if knocked well out
+RELEASE_COS = 0.7
 
 WIDTH, HEIGHT = 1100, 560
 SCALE = 0.9
@@ -50,8 +54,10 @@ def main():
                    (-1.0, 1.0): load_net("policy_du.pt"),
                    (-1.0, -1.0): None}
     fallback = load_net(args.policy)
+    swing_uu = load_net("policy_uu_swing.pt")
     loaded = [n for n in specialists.values() if n is not None]
-    policy_name = (f"specialists ({len(loaded)}/3 loaded, dd = motor off)"
+    policy_name = (f"specialists ({len(loaded)}/3 loaded, dd = motor off"
+                   + (", uu = swing+balance)" if swing_uu else ")")
                    if loaded else (args.policy if fallback else "none — train first"))
 
     env = MathCartPoleVec(1, goal_switching=False)
@@ -72,7 +78,7 @@ def main():
     root.bind("<Escape>", lambda e: root.destroy())
 
     state = {"obs": obs, "steps": 0, "reward": 0.0, "episode": 1,
-             "goal": (1.0, 1.0)}
+             "goal": (1.0, 1.0), "mode": "swing"}
 
     def do_reset(_event=None):
         env.reset_all()
@@ -81,6 +87,7 @@ def main():
         state["steps"] = 0
         state["reward"] = 0.0
         state["episode"] += 1
+        state["mode"] = "swing"
 
     root.bind("<KeyPress-r>", do_reset)
 
@@ -92,6 +99,7 @@ def main():
         state["goal"] = (a, b)
         env.set_goal(0, a, b)
         state["obs"] = env.observe()
+        state["mode"] = "swing"
 
     for key, (a, b) in goals.items():
         root.bind(f"<KeyPress-{key}>", lambda e, a=a, b=b: set_goal(a, b))
@@ -101,6 +109,20 @@ def main():
         net = specialists.get(goal)
         if net is None and goal != (-1.0, -1.0):
             net = fallback
+        # up-up runs as two specialists: swing net delivers the poles
+        # into the catch basin, balance net holds them there
+        if goal == (1.0, 1.0) and swing_uu is not None and net is not None:
+            c1, c2 = np.cos(float(env.theta1[0])), np.cos(float(env.theta2[0]))
+            w1, w2 = float(env.omega1[0]), float(env.omega2[0])
+            if state["mode"] == "swing" and (
+                    c1 > HANDOFF_COS and c2 > HANDOFF_COS
+                    and abs(w1) < HANDOFF_OMEGA and abs(w2) < HANDOFF_OMEGA):
+                state["mode"] = "balance"
+            elif state["mode"] == "balance" and (c1 < RELEASE_COS
+                                                 or c2 < RELEASE_COS):
+                state["mode"] = "swing"
+            if state["mode"] == "swing":
+                net = swing_uu
         if net is not None:
             with torch.no_grad():
                 s = torch.from_numpy(state["obs"])
@@ -157,6 +179,8 @@ def main():
         hud = (f"episode {state['episode']}   step {state['steps']:4d}   "
                f"reward {state['reward']:8.1f}   cmd {cmd:+.2f}   "
                f"goal {goal}"
+               + (f"   [{state['mode'].upper()}]"
+                  if goal == "UP-UP" and swing_uu is not None else "")
                + ("   [MANUAL]" if manual else ""))
         canvas.create_text(14, 16, anchor="w", fill="#d8d8de",
                            font=("monospace", 12), text=hud)

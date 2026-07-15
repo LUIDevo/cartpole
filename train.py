@@ -217,6 +217,10 @@ def main():
                     help="critic-only iterations before PPO updates "
                          "(use when warm-starting from a distilled policy "
                          "whose critic is untrained)")
+    ap.add_argument("--handoff", action="store_true",
+                    help="end episodes with a bonus once both poles enter "
+                         "the balance specialist's catch basin (train a "
+                         "swing specialist)")
     args = ap.parse_args()
 
     out = args.out or (f"policy_{args.goal}.pt" if args.goal else "policy.pt")
@@ -232,6 +236,8 @@ def main():
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
     env_kw = {} if args.balance_frac is None else \
         {"balance_frac": args.balance_frac}
+    if args.handoff:
+        env_kw["handoff"] = True
     runner = VecRunner(MathCartPoleVec(NUM_ENVS, fixed_goal=fixed, **env_kw),
                        max_steps=args.max_steps)
     log = open(log_path, "w")

@@ -49,18 +49,27 @@ BALANCE_FRAC = 0.25
 BALANCE_ANGLE_STD = 0.08
 BALANCE_OMEGA_STD = 0.3
 
+# swing->balance handoff (two-specialist deployment): in handoff mode an
+# episode ends with a bonus the moment both poles are catchable by the
+# balance specialist, so "deliver a catchable state" is the swing
+# policy's whole objective. Bonus ~ the discounted return of holding.
+HANDOFF_COS = 0.98
+HANDOFF_OMEGA = 0.8
+HANDOFF_BONUS = 300.0
+
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
 
 
 class MathCartPoleVec:
     def __init__(self, n, seed=None, goal_switching=True, fixed_goal=None,
-                 balance_frac=BALANCE_FRAC):
+                 balance_frac=BALANCE_FRAC, handoff=False):
         self.n = n
         self.rng = np.random.default_rng(seed)
         self.fixed_goal = fixed_goal
         self.goal_switching = goal_switching and fixed_goal is None
         self.balance_frac = balance_frac
+        self.handoff = handoff
 
         z = lambda: np.zeros(n)
         self.x, self.v = z(), z()
@@ -219,6 +228,14 @@ class MathCartPoleVec:
 
         done = self.terminal() | bad
         rew = np.where(bad, -DEATH_PENALTY, self.reward() - DEATH_PENALTY * done)
+        if self.handoff:
+            caught = ((self.g1 > 0) & (self.g2 > 0)
+                      & (np.cos(self.theta1) > HANDOFF_COS)
+                      & (np.cos(self.theta2) > HANDOFF_COS)
+                      & (np.abs(self.omega1) < HANDOFF_OMEGA)
+                      & (np.abs(self.omega2) < HANDOFF_OMEGA))
+            rew = rew + HANDOFF_BONUS * (caught & ~done)
+            done = done | caught
         return self.observe(), rew, done
 
     def observe(self):
