@@ -1,0 +1,3 @@
+=== STAGE A: trajectory optimization + dataset + BC ===
+start  10: trajectories ok 8, closed-loop catch 54/96, dataset 13101
+start  20: trajectories ok 15, closed-loop catch 106/180, dataset 26114
