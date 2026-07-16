@@ -23,4 +23,4 @@ $PY train.py --goal uu --init policy_uu_bc.pt --out policy_uu.pt \
 
 $PY train.py --goal uu --out policy_uu_swing.pt \
     --log training_log_uu_swing.csv \
-    --iters 1000 --balance-frac 0 --max-steps 3000 --handoff
+    --iters 400 --balance-frac 0 --max-steps 3000 --handoff

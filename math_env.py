@@ -52,10 +52,31 @@ BALANCE_OMEGA_STD = 0.3
 # swing->balance handoff (two-specialist deployment): in handoff mode an
 # episode ends with a bonus the moment both poles are catchable by the
 # balance specialist, so "deliver a catchable state" is the swing
-# policy's whole objective. Bonus ~ the discounted return of holding.
-HANDOFF_COS = 0.98
-HANDOFF_OMEGA = 0.8
+# policy's whole objective. The per-step time cost makes loitering
+# strictly unprofitable (minimum-time formulation): without it the
+# policy farms the alive/energy shaping forever and never cashes in.
+HANDOFF_COS = 0.96
+HANDOFF_OMEGA = 1.0
 HANDOFF_BONUS = 300.0
+# In handoff mode walls are NOT terminal: episode death lets the policy
+# reroll awkward starts by driving into a wall (death -10 beats bleeding
+# -2/step), and punishing walls harder (-300) makes it cower mid-track
+# instead of swinging. With walls as plain end-stops the only way to
+# stop the time-cost bleed is a genuine swing-up.
+HANDOFF_TIME_COST = 2.0
+# reverse curriculum from successful trajectories: when an episode ends
+# in handoff, the states 10..180 ticks before the catch (the approach
+# corridor) are archived, and half of later resets respawn from a
+# perturbed archived state. Gaussian difficulty dials around upright do
+# NOT work here: without balance skill, low-spin near-top starts decay
+# irrecoverably, so "easy" must mean "on a trajectory that flows into
+# the basin" — which archived corridors are by construction.
+SEED_FRAC = 0.5
+SEED_MAX = 20000
+SEED_OFFSETS = np.arange(10, 181, 10)
+SEED_NOISE_ANG = 0.05
+SEED_NOISE_OMG = 0.15
+HIST_LEN = 181
 
 GOAL_PAIRS = np.array([[1.0, 1.0], [1.0, -1.0], [-1.0, 1.0], [-1.0, -1.0]])
 GOAL_WEIGHTS = np.array([0.40, 0.25, 0.25, 0.10])
@@ -70,6 +91,12 @@ class MathCartPoleVec:
         self.goal_switching = goal_switching and fixed_goal is None
         self.balance_frac = balance_frac
         self.handoff = handoff
+        if handoff:
+            self._hist = np.zeros((HIST_LEN, n, 6))
+            self._hist_ptr = 0
+            self._age = np.zeros(n, dtype=np.int64)
+            self._seeds = []
+            self.max_offset_seen = 0
 
         z = lambda: np.zeros(n)
         self.x, self.v = z(), z()
@@ -123,6 +150,22 @@ class MathCartPoleVec:
         self.omega1[idx] = om()
         self.theta2[idx] = th()
         self.omega2[idx] = om()
+        if self.handoff:
+            self._age[idx] = 0
+            # respawn part of the batch from archived approach corridors
+            if self._seeds:
+                flat = np.atleast_1d(idx)
+                use = self.rng.random(k) < SEED_FRAC
+                for j in np.flatnonzero(np.atleast_1d(use)):
+                    s = self._seeds[self.rng.integers(len(self._seeds))]
+                    i = flat[j]
+                    self.theta1[i] = s[0] + self.rng.normal(0, SEED_NOISE_ANG)
+                    self.omega1[i] = s[1] + self.rng.normal(0, SEED_NOISE_OMG)
+                    self.theta2[i] = s[2] + self.rng.normal(0, SEED_NOISE_ANG)
+                    self.omega2[i] = s[3] + self.rng.normal(0, SEED_NOISE_OMG)
+                    self.x[i] = np.clip(s[4], -0.9 * HALF_TRACK,
+                                        0.9 * HALF_TRACK)
+                    self.v[i] = s[5]
 
         if self.fixed_goal is not None:
             self.g1[idx], self.g2[idx] = self.fixed_goal
@@ -226,16 +269,32 @@ class MathCartPoleVec:
         if bad.any():
             self._randomize(np.flatnonzero(bad))
 
-        done = self.terminal() | bad
-        rew = np.where(bad, -DEATH_PENALTY, self.reward() - DEATH_PENALTY * done)
         if self.handoff:
             caught = ((self.g1 > 0) & (self.g2 > 0)
                       & (np.cos(self.theta1) > HANDOFF_COS)
                       & (np.cos(self.theta2) > HANDOFF_COS)
                       & (np.abs(self.omega1) < HANDOFF_OMEGA)
                       & (np.abs(self.omega2) < HANDOFF_OMEGA))
-            rew = rew + HANDOFF_BONUS * (caught & ~done)
-            done = done | caught
+            done = bad | caught
+            # archive approach corridors of successful episodes
+            self._hist[self._hist_ptr] = np.stack(
+                [self.theta1, self.omega1, self.theta2, self.omega2,
+                 self.x, self.v], axis=1)
+            self._age += 1
+            for i in np.flatnonzero(caught & ~bad):
+                for o in SEED_OFFSETS[SEED_OFFSETS < self._age[i]]:
+                    self._seeds.append(
+                        self._hist[(self._hist_ptr - o) % HIST_LEN, i].copy())
+                    self.max_offset_seen = max(self.max_offset_seen, int(o))
+            if len(self._seeds) > SEED_MAX:
+                del self._seeds[:len(self._seeds) - SEED_MAX]
+            self._hist_ptr = (self._hist_ptr + 1) % HIST_LEN
+            rew = np.where(bad, -DEATH_PENALTY,
+                           self.reward() - HANDOFF_TIME_COST
+                           + HANDOFF_BONUS * (caught & ~bad))
+            return self.observe(), rew, done
+        done = self.terminal() | bad
+        rew = np.where(bad, -DEATH_PENALTY, self.reward() - DEATH_PENALTY * done)
         return self.observe(), rew, done
 
     def observe(self):

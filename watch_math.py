@@ -144,7 +144,10 @@ def main():
 
         draw(cmd)
 
-        if bool(done[0]) or state["steps"] >= MAX_STEPS:
+        # in two-net up-up mode a wall is just an end-stop, not a reset:
+        # the swing net is trained to work off it, not die on it
+        two_net = goal == (1.0, 1.0) and swing_uu is not None
+        if (bool(done[0]) and not two_net) or state["steps"] >= MAX_STEPS:
             do_reset()
         root.after(16, tick)
 
