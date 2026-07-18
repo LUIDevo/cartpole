@@ -35,7 +35,7 @@ import torch
 from math_env import (MathCartPoleVec, HALF_TRACK, HIST_LEN, SEED_OFFSETS,
                       SEED_NOISE_ANG, SEED_NOISE_OMG)
 from train import (Network, VecRunner, update, STEPS_PER_ITER, NUM_ENVS,
-                   GOAL_NAMES, LR, MIN_STD)
+                   LR, MIN_STD)
 
 SUCCESS_TICKS = 120        # held up-up this many ticks (2 s) => solvable
 ANCHOR_FRAC = 0.3          # resets kept at pure up-up to retain the hold
