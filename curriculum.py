@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 """Reverse-curriculum swing-up: ONE policy, from up-up outward to hanging.
 
-The whole idea in one place. Instead of an energy-pump swinger + a
-separate balance catcher + a distillation step (all dead ends — see the
-swing-analytic-ceiling finding), a single policy is trained by growing
-the set of START states outward from the goal:
+Instead of an energy-pump swinger + a separate balance catcher + a
+distillation step (all dead ends -- see the swing-analytic-ceiling
+finding), a single policy is trained by growing the set of START states
+outward from the goal, along trajectories the policy already solves.
 
-  1. Start only at up-up-at-rest. The warm-started net already holds it.
-  2. Whenever an episode HOLDS up-up, archive the states it passed through
-     on the way in (its approach corridor). Those are, by construction,
-     states from which the policy can already reach the goal -> they
-     become the next, slightly-harder start states.
-  3. The start frontier therefore marches outward from up toward down
-     ONLY along trajectories the policy already solves, so every start
-     has a dense gradient. No isotropic blob of unreachable states.
+The mechanism (corrected after a first version poisoned itself):
 
-Episodes end only on a wall or timeout -- never for leaving the top -- so
-the policy is free to swing down and pump energy for a bigger upswing.
+  1. The buffer holds only PROVEN start states -- poses an episode was
+     actually launched from AND then held up-up. The anchor (up-up at
+     rest) seeds it. Nothing mid-episode is archived, so no flailing
+     junk gets used as a start.
+  2. Each new start is a proven buffer state + a small Gaussian
+     perturbation (or, ANCHOR_FRAC of the time, the pure anchor). If the
+     policy holds from the perturbed state, that state joins the buffer
+     -- so the frontier ratchets outward by one perturbation step only
+     where the policy actually succeeds. Over-reaching perturbations fail
+     and are simply never added: no pollution.
+  3. When the buffer is full, eviction is a tournament that preferentially
+     drops states CLOSER to upright, so the buffer concentrates on the
+     competence frontier; ANCHOR_FRAC keeps the up-up hold from being
+     forgotten. The anchor itself is never evicted.
+  4. Success is a real hold: the longest CONSECUTIVE up-up streak in the
+     episode must exceed SUCCESS_TICKS (not total ticks, which flailing
+     could fake).
 
-The `frontier` (how far from upright the buffer reaches, 0..2pi) is logged
-every iter, so the curriculum's progress toward full swing-up is
-measurable, not hoped for.
+`frontier` = 90th-percentile buffer tilt (0=up .. ~6.28=both hanging),
+logged every iter so progress toward full swing-up is measurable.
 
 Usage:  python curriculum.py [--init policy_uu.pt] [--iters 1500]
 """
@@ -32,79 +39,85 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 import numpy as np
 import torch
 
-from math_env import (MathCartPoleVec, HALF_TRACK, HIST_LEN, SEED_OFFSETS,
-                      SEED_NOISE_ANG, SEED_NOISE_OMG)
+from math_env import MathCartPoleVec, HALF_TRACK
 from train import (Network, VecRunner, update, STEPS_PER_ITER, NUM_ENVS,
                    LR, MIN_STD)
 
-SUCCESS_TICKS = 120        # held up-up this many ticks (2 s) => solvable
-ANCHOR_FRAC = 0.3          # resets kept at pure up-up to retain the hold
-BUF_MAX = 50000
+SUCCESS_TICKS = 150        # longest consecutive up-up streak to count solved
+ANCHOR_FRAC = 0.3          # resets kept at the pure anchor (retain the hold)
+BUF_MAX = 40000
 UP_COS = 0.9
+PERT_ANG = 0.15            # per-generation outward step (angle, rad)
+PERT_OMG = 0.30            # perturbation on angular velocity
+PERT_X = 20.0              # perturbation on cart position
+PERT_V = 10.0             # perturbation on cart velocity
+ANCHOR = np.zeros(6)       # [th1, w1, th2, w2, x, v] = up-up at rest
+
+
+def _tilt(states):
+    """Total distance from upright, |wrap(th1)| + |wrap(th2)|."""
+    s = np.atleast_2d(states)
+    t1 = np.abs(np.arctan2(np.sin(s[:, 0]), np.cos(s[:, 0])))
+    t2 = np.abs(np.arctan2(np.sin(s[:, 2]), np.cos(s[:, 2])))
+    return t1 + t2
 
 
 class CurriculumCartPole(MathCartPoleVec):
     def __init__(self, n, **k):
         self._ready = False
         super().__init__(n, fixed_goal=(1.0, 1.0), goal_switching=False, **k)
-        self._hist = np.zeros((HIST_LEN, n, 6))
-        self._age = np.zeros(n, dtype=np.int64)
-        self._up = np.zeros(n, dtype=np.int64)
-        self._ptr = 0
-        self._buffer = [np.zeros(6)]          # [th1, w1, th2, w2, x, v] = up-rest
+        self._buffer = [ANCHOR.copy()]        # proven start states
+        self._start = np.zeros((n, 6))         # pose each env was launched from
+        self._streak = np.zeros(n, dtype=np.int64)   # current up-up run
+        self._best = np.zeros(n, dtype=np.int64)     # longest run this episode
         self._arng = np.random.default_rng(999)
         self._ready = True
-        self.reset_all()                      # place every env at the anchor
+        self.reset_all()                       # place every env via curriculum
 
     def frontier(self):
-        b = np.array(self._buffer)
-        th1 = np.abs(np.arctan2(np.sin(b[:, 0]), np.cos(b[:, 0])))
-        th2 = np.abs(np.arctan2(np.sin(b[:, 2]), np.cos(b[:, 2])))
-        return float((th1 + th2).max())       # 0 (up) .. 2*pi (both hanging)
+        return float(np.percentile(_tilt(np.array(self._buffer)), 90))
 
     def step(self, commands):
         obs, rew, done = super().step(commands)   # non-handoff: done = wall|bad
-        c1, c2 = np.cos(self.theta1), np.cos(self.theta2)
-        self._hist[self._ptr] = np.stack(
-            [self.theta1, self.omega1, self.theta2, self.omega2,
-             self.x, self.v], axis=1)
-        self._age += 1
-        self._up += (c1 > UP_COS) & (c2 > UP_COS)
-        self._ptr = (self._ptr + 1) % HIST_LEN
+        up = (np.cos(self.theta1) > UP_COS) & (np.cos(self.theta2) > UP_COS)
+        self._streak = np.where(up, self._streak + 1, 0)
+        self._best = np.maximum(self._best, self._streak)
         return obs, rew, done
+
+    def _evict(self):
+        # tournament: drop the more-upright of two random non-anchor states,
+        # concentrating the buffer on the frontier
+        while len(self._buffer) > BUF_MAX:
+            a, b = self._arng.integers(1, len(self._buffer), size=2)
+            drop = a if _tilt(self._buffer[a])[0] < _tilt(self._buffer[b])[0] else b
+            self._buffer.pop(int(drop))
 
     def _randomize(self, idx):
         super()._randomize(idx)               # DR params + goal + switch_in
         if not self._ready:
             return                            # first call is from super().__init__
         idx = np.atleast_1d(idx)
-        # archive approach corridors of episodes that held the goal
+        # promote proven starts of episodes that actually held the goal
         for i in idx:
-            if self._up[i] >= SUCCESS_TICKS:
-                for o in SEED_OFFSETS[SEED_OFFSETS < self._age[i]]:
-                    self._buffer.append(
-                        self._hist[(self._ptr - o) % HIST_LEN, i].copy())
-        if len(self._buffer) > BUF_MAX:
-            del self._buffer[:len(self._buffer) - BUF_MAX]
-        # draw new starts: anchor, or a solved buffer state + light noise
+            if self._best[i] >= SUCCESS_TICKS:
+                self._buffer.append(self._start[i].copy())
+        self._evict()
+        # draw new starts: anchor, or a proven state + small perturbation
         k = idx.size
-        anchor = (self._arng.random(k) < ANCHOR_FRAC)
+        anchor = self._arng.random(k) < ANCHOR_FRAC
         sel = self._arng.integers(len(self._buffer), size=k)
-        an = self._arng.normal(0.0, SEED_NOISE_ANG, (k, 2))
-        on = self._arng.normal(0.0, SEED_NOISE_OMG, (k, 2))
+        pert = self._arng.normal(0.0, 1.0, (k, 6)) * \
+            np.array([PERT_ANG, PERT_OMG, PERT_ANG, PERT_OMG, PERT_X, PERT_V])
         for j, i in enumerate(idx):
-            if anchor[j]:
-                s = np.zeros(6)
-            else:
-                s = self._buffer[sel[j]]
-            self.theta1[i] = s[0] + an[j, 0]
-            self.omega1[i] = s[1] + on[j, 0]
-            self.theta2[i] = s[2] + an[j, 1]
-            self.omega2[i] = s[3] + on[j, 1]
-            self.x[i] = np.clip(s[4], -0.9 * HALF_TRACK, 0.9 * HALF_TRACK)
-            self.v[i] = s[5]
-        self._age[idx] = 0
-        self._up[idx] = 0
+            base = ANCHOR if anchor[j] else self._buffer[sel[j]]
+            s = base + pert[j]
+            s[4] = np.clip(s[4], -0.9 * HALF_TRACK, 0.9 * HALF_TRACK)
+            self._start[i] = s
+            self.theta1[i], self.omega1[i] = s[0], s[1]
+            self.theta2[i], self.omega2[i] = s[2], s[3]
+            self.x[i], self.v[i] = s[4], s[5]
+        self._streak[idx] = 0
+        self._best[idx] = 0
 
 
 def main():
