@@ -1,3 +1,4 @@
+nohup: ignoring input
 === STAGE A: trajectory optimization + dataset + BC ===
-start  10: trajectories ok 8, closed-loop catch 54/96, dataset 13101
-start  20: trajectories ok 15, closed-loop catch 106/180, dataset 26114
+start  10: trajectories ok 5, closed-loop catch 27/60, dataset 8554
+Terminated                 $PY swing_opt.py --starts 120 --dr-per-traj 12 --out policy_uu_swing_ilqr.pt

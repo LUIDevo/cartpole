@@ -303,10 +303,13 @@ def collect_closed_loop(Z, U, K, params, n_rolls, rng):
 
 
 def sample_start(rng):
-    th = lambda: (rng.uniform(-np.pi, np.pi) if rng.random() < 0.5
-                  else rng.normal(0.0, 0.3))
-    return np.array([rng.uniform(-250, 250), rng.uniform(-60, 60),
-                     th(), rng.uniform(-2, 2), th(), rng.uniform(-2, 2)])
+    # Tight jitter around the canonical hanging-down start. Keeps every
+    # iLQR trajectory in the same swing-up mode so BC learns a single
+    # stationary policy instead of averaging conflicting time-varying
+    # controllers (the old wide starts floored BC mse ~0.39 -> mush).
+    return np.array([rng.normal(0.0, 15.0), rng.normal(0.0, 4.0),
+                     np.pi + rng.normal(0.0, 0.15), rng.normal(0.0, 0.2),
+                     np.pi + rng.normal(0.0, 0.15), rng.normal(0.0, 0.2)])
 
 
 def main():
