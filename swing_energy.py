@@ -23,8 +23,7 @@ the iLQR pipeline's Stage B.
 """
 import numpy as np
 
-from math_env import (POLE_LEN, R_COM, I_COM_PER_M, GRAVITY, HALF_TRACK,
-                      MAX_CART_VEL)
+from math_env import POLE_LEN, R_COM, I_COM_PER_M, GRAVITY, HALF_TRACK
 
 # nominal plant the controller believes in (midpoints of the DR ranges);
 # energy pumping is gain-robust, so blindness to the true draw is fine
