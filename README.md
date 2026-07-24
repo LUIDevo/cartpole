@@ -19,7 +19,7 @@ Plans for the future:
 - [ ] If the above are insufficient for real life, implement wider randomization ranges for training
 
 Then to prepare for double pendulum
-- [ ] Make a larger model
+- [x] Make a larger model
 - [x] Redo the simulation pipeline to deal with a double pendulum (especially godot)
 
 Then to build the real thing
