@@ -102,10 +102,13 @@ class CurriculumCartPole(MathCartPoleVec):
             if self._best[i] >= SUCCESS_TICKS:
                 self._buffer.append(self._start[i].copy())
         self._evict()
-        # draw new starts: anchor, or a proven state + small perturbation
+        # draw new starts: anchor, or a proven state + small perturbation.
+        # bias the draw toward the frontier (tilt-weighted) so probes land
+        # at the edge of competence, where expansion actually happens
         k = idx.size
         anchor = self._arng.random(k) < ANCHOR_FRAC
-        sel = self._arng.integers(len(self._buffer), size=k)
+        w = _tilt(np.array(self._buffer)) ** 2 + 1e-3
+        sel = self._arng.choice(len(self._buffer), size=k, p=w / w.sum())
         pert = self._arng.normal(0.0, 1.0, (k, 6)) * \
             np.array([PERT_ANG, PERT_OMG, PERT_ANG, PERT_OMG, PERT_X, PERT_V])
         for j, i in enumerate(idx):
