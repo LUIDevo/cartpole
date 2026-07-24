@@ -22,6 +22,8 @@ Then to prepare for double pendulum
 - [x] Make a larger model
 - [x] Redo the simulation pipeline to deal with a double pendulum (especially godot)
 
+While working on the double pendulum, it has come to me that it is a much harder task than I initally thought. I've added PPO, several staging techniques, among many other tricks to get it to work. I've gotten quite close to it mastering double pendulum, but it hasn't been able to consistently learn it properly as of yet. I have to create a cleare plan if I want to make it work.
+
 Then to build the real thing
 - [ ] Design and build a physical double pendulum balancing robot
 - [ ] Train it using ML, using everything above (sim-to-real via TTT / domain randomization)
